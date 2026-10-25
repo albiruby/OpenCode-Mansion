@@ -1,36 +1,68 @@
-# OpenCode Virtual Office HQ - v5.4 (live AI campus: physics, collisions & Amazon jungle)
+<div align="center">
 
-An **unofficial community project** — not affiliated with the OpenCode team.
+# 🏝️ OpenCode Mansion
 
-![Campus overview](docs/preview/campus-overview.png)
-![Campus at night](docs/preview/campus-dark.png)
+**Your OpenCode agent squad, living as a 3D AI campus in the Amazon.**
 
-3D office dashboard that streams **your real local OpenCode sessions**: titles,
-directories, agents, models, token usage, status, live events, reasoning history,
-diffs and files touched. No simulated scenarios, no placeholder sessions, models
-or token counters.
+[![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
+[![Three.js r186](https://img.shields.io/badge/three.js-r186-black?logo=threedotjs)](https://threejs.org)
+[![Vite 8](https://img.shields.io/badge/vite-8-purple?logo=vite&logoColor=white)](https://vite.dev)
+[![TypeScript strict](https://img.shields.io/badge/typescript-strict-blue?logo=typescript&logoColor=white)](https://typescriptlang.org)
+[![100% local](https://img.shields.io/badge/data-100%25__local__only-success)](#privacy--safety)
+[![unofficial](https://img.shields.io/badge/unofficial-community-yellow)](#disclaimer)
 
-The estate is an open-air live campus: a 10-desk workspace, glass rooms (lounge,
-pantry, meeting, server), squad loft, pool, padel court, mini soccer pitch,
-basketball court, tennis court, gym, cinema, arcade, library, pool bar, yoga deck,
-helipad with helicopter, parking, mini golf, food truck, koi pond, observatory, a
-floating hot-air balloon, a **Command Center**, a **live session board**, district
-towers, roads with an animated shuttle, and an **Animal Village** - with **9 office
-avatars per session** (1 lead + 8 squad members). Running sessions stay at their
-desks; idle sessions are free to roam anywhere, including the sports wing.
+Real local OpenCode sessions — titles, agents, models, token usage, live events,
+reasoning and diffs — rendered as animated agents working on an open-air campus,
+ringed by a dense multi-species rainforest with a black-water river.
+**Zero fake data. Zero telemetry. Nothing leaves your machine.**
 
-v5.3 replaces the blocky placeholder people and furniture with external **CC0**
-art: animated Quaternius characters, Poly Haven props, a Poly Haven HDRI
-environment and tiled PBR ground materials. Everything still has a procedural
-fallback, so the campus renders before the files arrive and when one is missing.
+![The whole estate from above](docs/gallery/01-hero-light.png)
 
-v5.4 makes the campus physically believable: every character walks a real
-collision-aware route (A* + steering, sliding along walls, body separation),
-the shuttle accelerates, brakes and yields to pedestrians, and the whole estate
-is ringed by a dense, multi-species **Amazon rainforest** - emergent kapok
-giants, Brazil-nut trunks, liana figs, acai palms, tree ferns, a black-water
-river, drifting mist and fireflies - so the mansion reads as a remote clearing
-in the jungle.
+</div>
+
+## ✨ What you get
+
+- 🔴 **Live-first** — sessions, statuses, models, tokens and cost stream from your
+  own running OpenCode through a **read-only, secret-redacting local bridge**.
+  No demo mode, no placeholder data.
+-  **9 animated agents per session** (1 lead + 8 squad) — CC0 Quaternius rigs
+  with per-agent tinted outfits, cross-faded idle/walk clips synced to real speed.
+- 🌳 **Collision-aware movement** — A* navigation + steering physics: agents route
+  through glass-room doors, walk around desks and furniture, queue through gaps,
+  never clip through anything, and the campus shuttle brakes for pedestrians.
+- 🖱️ **Focused interactivity** — click agents to open their real session dossier,
+  click the four live screens or workstations to inspect them. Decorative meshes
+  stay quiet on purpose.
+- 📺 **Live data in-world** — a Command Center tower screen, a physical Session
+  Board (RUNNING / IDLE / FAILED), a Server Status screen and a Lounge TV CI feed,
+  all painted from your real event stream.
+- 🌧️ **Amazon surroundings** — ~470 instanced trees in 6 species (emergent kapok,
+  Brazil-nut, liana figs, açaí palms, tree ferns), river, drifting mist, circling
+  macaws by day and fireflies by night.
+- 🌗 **Day/night** — the theme button relights the 3D estate; the dashboard's own theme stays untouched.
+- 🪶 **Graceful fallbacks** — the ~25 MB CC0 art pack is optional; without it every
+  asset renders as procedural art, so a fresh clone looks alive in seconds.
+
+## 📸 Gallery
+
+| | |
+|---|---|
+| **Inspect anything important** — click a live screen and get its card, a yellow box highlight and camera shortcuts. | **The Session Board** — RUNNING / IDLE / FAILED built from your real sessions. |
+| ![Inspector on the Command Center](docs/gallery/02-inspect-command.png) | ![Session board](docs/gallery/03-session-board.png) |
+| **Squad floor** — up to 54 avatars at workstations and the squad loft, driven 1:1 by live sessions. | **Agent dossier** — click an agent: name, state, model, tokens, and its last real actions pop up. |
+| ![Office floor](docs/gallery/04-office-agents.png) | ![Dossier](docs/gallery/05-agent-dossier.png) |
+| **Lounge** — Poly Haven sofa, coffee table and armchair under a CC0 HDRI. | **Coffee corner** — espresso bar, cart and pantry props. |
+| ![Lounge](docs/gallery/06-lounge-cc0.png) | ![Coffee](docs/gallery/07-coffee-cart.png) |
+| **Animal Village** — goats, alpacas, rabbits, a duck pond and cottages at the jungle's edge. | **Sports wing** — pool, padel, mini soccer, basketball, tennis, gym. |
+| ![Village](docs/gallery/08-animal-village.png) | ![Pool](docs/gallery/09-pool-sports.png) |
+| **Top-down** — the full 180 × 150 estate as one navigable, collision-checked level. | **Night mode** — the campus glows, fireflies wake up in the treeline. |
+| ![Top-down](docs/gallery/10-topdown.png) | ![Night](docs/gallery/11-hero-night.png) |
+| **Live event stream** — every real thought/tool/result with API keys shown as `[REDACTED]`. | **Activity view** — per-session reasoning, tools touched and diffs, straight from history. |
+| ![Event stream](docs/gallery/12-event-stream.png) | ![Activity](docs/gallery/13-activity.png) |
+| **Connect dialog** — point the dashboard at any local bridge URL; it auto-discovers by default. | **Mobile** — the dashboard reflows cleanly; the bridge stays on your laptop. |
+| ![Connect modal](docs/gallery/14-connect-modal.png) | ![Mobile layout](docs/gallery/15-mobile.png) |
+
 
 ## Try it in 60 seconds (plug & play)
 
@@ -38,8 +70,8 @@ Requirements: **Node.js ≥ 20** and a running **OpenCode** instance on the same
 machine (any version with the local server API — the bridge auto-discovers it).
 
 ```bash
-git clone https://github.com/<you>/opencode-virtual-office-hq.git
-cd opencode-virtual-office-hq
+git clone https://github.com/albiruby/OpenCode-Mansion.git
+cd OpenCode-Mansion
 npm install
 npm start
 ```
@@ -78,7 +110,7 @@ fallback, and the status chip reports what loaded.
 | ------- | ----------------------------------------- | ------------------------------------ |
 | Build   | Vite 8 + TypeScript 7 (`strict`)          | hashed assets, source maps           |
 | 3D      | Three.js r186 (npm) + OrbitControls       | no CDN, pinned versions              |
-| Styling | Tailwind CSS v4 (`@tailwindcss/vite`)     | dashboard is always dark              |
+| Styling | Tailwind CSS v4 (`@tailwindcss/vite`)     | dashboard theme independent of scene  |
 | Icons   | Lucide (npm) — pre-inlined SVG            | no runtime loader, no icon flash     |
 | Art     | Quaternius + Poly Haven CC0 assets        | packed GLBs, local files, fallback   |
 | State   | Internal event bus + stores (no deps)     | sessions + bounded event log         |
@@ -213,7 +245,7 @@ WebSocket JSON:
 
 Read-only by design: the bridge never creates sessions or sends prompts.
 
-### Privacy & safety
+### Bridge privacy & safety
 
 - Binds to `127.0.0.1` by default; use `--host` only if you know why.
 - All outgoing text (broadcast + console) passes a sanitizer: ANSI/control chars
@@ -334,3 +366,21 @@ Health/status: `http://127.0.0.1:4040/health`.
   software renderers.
 - reasoning/answers come from session context (last messages) plus live events;
   OpenCode's event stream itself has no replay.
+
+## Disclaimer
+
+OpenCode Mansion is an **unofficial community project**. It is not affiliated
+with, endorsed by, or produced by the OpenCode team. "OpenCode" and related
+marks belong to their respective owners. All bundled art is CC0 (see
+[`public/assets/ATTRIBUTION.md`](public/assets/ATTRIBUTION.md)); the code is MIT.
+
+## Contributing
+
+Issues and PRs welcome — especially around performance, a11y and new live-data
+views. Dev workflow: `npm install` → `npm start` → `npm run verify:ui`,
+`verify:boot`, `verify:interaction`, `verify:physics` (Playwright scripts expect
+the dev server on `:5180` and an installed Chrome).
+
+## License
+
+MIT © 2026 albireo — see [LICENSE](LICENSE).

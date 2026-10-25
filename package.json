@@ -1,9 +1,13 @@
 {
-  "name": "opencode-virtual-office-hq",
+  "name": "opencode-mansion",
   "private": true,
   "version": "5.4.0",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/albiruby/OpenCode-Mansion.git"
+  },
   "engines": {
     "node": ">=20"
   },
