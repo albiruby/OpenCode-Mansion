@@ -1,0 +1,42 @@
+{
+  "name": "opencode-virtual-office-hq",
+  "private": true,
+  "version": "5.4.0",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "description": "3D micro-office dashboard for OpenCode agent swarms - Vite + TypeScript + Three.js + Tailwind + live OpenCode bridge",
+  "scripts": {
+    "start": "node scripts/run-all.mjs",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "bridge": "tsx server/bridge.ts",
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "verify:boot": "node scripts/verify-boot.mjs",
+    "verify:interaction": "node scripts/verify-interaction.mjs",
+    "verify:physics": "node scripts/verify-physics.mjs",
+    "assets": "node scripts/fetch-assets.mjs",
+    "icons": "node scripts/inline-icons.mjs"
+  },
+  "dependencies": {
+    "@opencode/client": "^2.1.4",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.2",
+    "lucide": "^1.61.0",
+    "playwright": "^1.64.1",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

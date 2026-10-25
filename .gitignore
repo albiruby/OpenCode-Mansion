@@ -1,0 +1,18 @@
+node_modules
+dist
+*.local
+.DS_Store
+*.tsbuildinfo
+
+# generated screenshots
+ui-*.png
+
+# Vendored CC0 art (~25 MB) is reproducible with `npm run assets`;
+# keep it out of the public repo so cloning stays lightweight.
+public/assets/characters/
+public/assets/props/
+public/assets/textures/
+public/assets/hdri/
+
+# archived pre-modularization single-file version
+legacy/

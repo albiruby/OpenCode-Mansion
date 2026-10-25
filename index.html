@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenCode Mansion — 3D Virtual Office HQ</title>
+    <meta name="description" content="3D micro-office dashboard streaming real OpenCode sessions: agents, models, token usage, events, diffs and reasoning." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Dashboard is always dark; the theme button only relights the 3D office. -->
+
+    <!-- Boot splash: hides raw/unstyled markup until the app has booted. -->
+    <style>
+      #app { visibility: hidden; }
+      html.app-ready #app { visibility: visible; }
+      #bootSplash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: #f8fafc;
+        color: #0f172a;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        transition: opacity 0.22s ease;
+      }
+      html.dark #bootSplash { background: #09090b; color: #e4e4e7; }
+      html.app-ready #bootSplash { opacity: 0; pointer-events: none; }
+      #bootSplash .boot-logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #0f172a;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-weight: 700;
+        font-size: 18px;
+      }
+      html.dark #bootSplash .boot-logo { background: #ffffff; color: #18181b; }
+      #bootSplash .boot-title { font-size: 13px; font-weight: 600; }
+      #bootSplash .boot-sub {
+        font-size: 11px;
+        opacity: 0.65;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+      }
+      #bootSplash .boot-spinner {
+        width: 22px;
+        height: 22px;
+        border-radius: 9999px;
+        border: 2px solid rgba(100, 116, 139, 0.25);
+        border-top-color: #0f172a;
+        animation: bootspin 0.9s linear infinite;
+      }
+      html.dark #bootSplash .boot-spinner { border-top-color: #f4f4f5; }
+      @keyframes bootspin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        #bootSplash .boot-spinner { animation-duration: 2.4s; }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-200 font-sans min-h-screen flex flex-col transition-colors duration-200 selection:bg-slate-200 dark:selection:bg-zinc-800">
+    <div id="bootSplash" role="status" aria-live="polite" aria-label="Loading OpenCode 3D Office">
+      <div class="boot-logo">&gt;_</div>
+      <div class="boot-title">OpenCode 3D Office</div>
+      <div class="boot-spinner" aria-hidden="true"></div>
+      <div class="boot-sub">Booting office&hellip;</div>
+    </div>
+
+    <noscript>
+      <style>
+        #bootSplash { display: none !important; }
+        #app { visibility: visible !important; }
+      </style>
+      <p class="p-6 text-sm">This dashboard needs JavaScript enabled.</p>
+    </noscript>
+
+    <div id="app" class="flex flex-col flex-1">
+    <!-- ================= TOP HEADER ================= -->
+    <header class="border-b border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 sticky top-0 z-40 px-4 py-2.5 transition-colors">
+      <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-zinc-900 flex items-center justify-center font-mono font-bold text-sm shadow-sm" aria-hidden="true">&gt;_</div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-sm font-semibold tracking-tight text-slate-900 dark:text-white">OpenCode Mansion</h1>
+              <span class="text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700/60">v5.4.0</span>
+              <span id="connectionPill" class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">
+                <span id="statusDot" class="w-1.5 h-1.5 rounded-full bg-rose-500" aria-hidden="true"></span>
+                <span id="modeLabel">Bridge Offline</span>
+              </span>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-600 dark:text-zinc-400 font-mono mt-0.5">
+              <span id="sessionNameTag" class="truncate max-w-[22rem]">No live session</span>
+              <span aria-hidden="true">&bull;</span>
+              <span id="modelTag" class="text-slate-800 dark:text-zinc-200">—</span>
+            </div>
+          </div>
+        </div>
+
+        <nav aria-label="Dashboard views" class="flex items-center gap-1 text-xs font-medium order-last md:order-none">
+          <a href="#/office" data-view="office" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg><span>Office</span>
+          </a>
+          <a href="#/terminal" data-view="terminal" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></svg><span>Events</span>
+          </a>
+          <a href="#/activity" data-view="activity" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Activity</span>
+          </a>
+        </nav>
+
+        <div class="flex flex-wrap items-center justify-end gap-2 font-mono text-xs">
+          <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700/60 text-slate-700 dark:text-zinc-300">
+            <svg class="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span id="sessionCounter" aria-label="Live sessions" title="0 running">0 sessions</span>
+          </div>
+          <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700/60 text-slate-700 dark:text-zinc-300">
+            <svg class="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v2"/><path d="M12 2v2"/><path d="M17 20v2"/><path d="M17 2v2"/><path d="M2 12h2"/><path d="M2 17h2"/><path d="M2 7h2"/><path d="M20 12h2"/><path d="M20 17h2"/><path d="M20 7h2"/><path d="M7 20v2"/><path d="M7 2v2"/><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>
+            <span id="tokenCounter" aria-label="Tokens consumed">0 tokens</span>
+          </div>
+          <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700/60 text-slate-700 dark:text-zinc-300">
+            <span class="text-slate-500 dark:text-zinc-400 font-sans" aria-hidden="true">$</span>
+            <span id="costCounter" aria-label="Cost in dollars">0.00</span>
+          </div>
+
+          <label for="sessionSelector" class="sr-only">Live session</label>
+          <select id="sessionSelector" disabled class="text-xs bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 rounded-lg px-2.5 py-1.5 font-medium max-w-[16rem]">
+            <option value="">No live sessions</option>
+          </select>
+
+          <button id="soundBtn" type="button" aria-pressed="false" title="Toggle audio feedback" class="p-1.5 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+            <svg id="iconVolumeOn" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg>
+            <svg id="iconVolumeOff" class="w-4 h-4 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.7.7 0 0 0 11 19.298z"/><path d="m16.5 14.5 5-5"/><path d="m16.5 9.5 5 5"/></svg>
+            <span class="sr-only">Audio feedback</span>
+          </button>
+          <button id="themeBtn" type="button" title="Toggle office lighting (dashboard stays dark)" class="p-1.5 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+            <svg id="iconMoon" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+            <svg id="iconSun" class="w-4 h-4 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+            <span class="sr-only">Toggle office lighting</span>
+          </button>
+
+          <button id="bridgeBtn" type="button" class="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 transition shadow-sm">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/></svg>
+            <span>CLI Bridge</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ================= LIVE SESSION TABS ================= -->
+    <section aria-label="Live OpenCode sessions" class="border-b border-slate-200 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/50 px-4 py-2 transition-colors">
+      <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-2">
+        <div id="sessionTabs" class="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto text-xs py-1"></div>
+        <div class="flex items-center gap-3 self-end md:self-auto font-mono text-xs text-slate-600 dark:text-zinc-400 shrink-0">
+          <span id="sessionSummary">Bridge offline</span>
+        </div>
+      </div>
+    </section>
+
+    <main class="max-w-7xl w-full mx-auto p-4 flex-1 flex flex-col gap-4">
+      <!-- ================= VIEW: OFFICE (3D) ================= -->
+      <section id="view-office" class="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm flex flex-col overflow-hidden transition-colors">
+        <div class="px-4 py-2 border-b border-slate-100 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 bg-slate-50/60 dark:bg-zinc-900/60">
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-slate-500 dark:text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+            <h2 class="text-xs font-semibold tracking-wide text-slate-700 dark:text-zinc-300 uppercase">OpenCode Mansion &mdash; AI Campus</h2>
+            <span class="text-[11px] text-slate-600 dark:text-zinc-400 hidden sm:inline">&mdash; drag to orbit, scroll to zoom, click any agent</span>
+            <span
+              id="assetStatus"
+              class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700/60 hidden lg:inline"
+              title="External CC0 asset status"
+            >CC0 art: starting…</span>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-end gap-1.5 gap-y-1 text-xs font-mono">
+            <span class="text-slate-500 dark:text-zinc-400 text-[11px] mr-1">Camera:</span>
+            <button type="button" data-cam="overview" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-zinc-700 text-slate-900 dark:text-white font-medium hover:bg-slate-300 transition">Overview</button>
+            <button type="button" data-cam="office" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Office</button>
+            <button type="button" data-cam="dev" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Dev Desk</button>
+            <button type="button" data-cam="server" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Server</button>
+            <button type="button" data-cam="pool" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Pool</button>
+            <button type="button" data-cam="padel" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Padel</button>
+            <button type="button" data-cam="soccer" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Soccer</button>
+            <button type="button" data-cam="basketball" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Basketball</button>
+            <button type="button" data-cam="cinema" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Cinema</button>
+            <button type="button" data-cam="tennis" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Tennis</button>
+            <button type="button" data-cam="gym" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Gym</button>
+            <button type="button" data-cam="command" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Command</button>
+            <button type="button" data-cam="board" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Board</button>
+            <button type="button" data-cam="village" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Village</button>
+            <button type="button" data-cam="lounge" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Lounge</button>
+            <button type="button" data-cam="coffee" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Coffee</button>
+            <button type="button" data-cam="top" class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Top-Down</button>
+
+            <div class="h-3 w-px bg-slate-200 dark:bg-zinc-700 mx-1" aria-hidden="true"></div>
+
+            <label class="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-zinc-400 cursor-pointer" title="Let the camera follow the active agent">
+              <input type="checkbox" id="followToggle" class="accent-slate-900 dark:accent-white" />
+              <span>Auto-follow</span>
+            </label>
+
+            <button id="coffeeBtn" type="button" class="text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 px-2 py-0.5 rounded flex items-center gap-1 transition">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/></svg>
+              <span>Coffee Break</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="threeContainer" class="relative w-full aspect-[21/9] min-h-[380px] max-h-[620px] bg-slate-50 dark:bg-zinc-950 overflow-hidden select-none cursor-grab active:cursor-grabbing">
+          <div id="speechTagsContainer" class="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true"></div>
+
+          <div id="hoverTooltip" class="pointer-events-none absolute z-20 hidden max-w-[250px] rounded-md border border-amber-300/60 bg-slate-950/90 px-2 py-1 text-[10px] font-mono text-amber-100 shadow-lg"></div>
+
+          <div id="inspectCard" class="pointer-events-auto absolute right-3 top-3 z-20 hidden w-64 rounded-lg border border-amber-400/50 bg-white/95 p-3 text-xs shadow-xl backdrop-blur dark:bg-zinc-900/95" aria-live="polite">
+            <div class="flex items-start justify-between gap-2">
+              <span id="inspectKind" class="text-[10px] font-mono uppercase tracking-wide text-amber-600 dark:text-amber-400">Object</span>
+              <button type="button" id="inspectClose" class="rounded p-0.5 leading-none text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white" aria-label="Close inspector">&times;</button>
+            </div>
+            <div id="inspectTitle" class="mt-1 font-semibold text-slate-900 dark:text-white">Campus object</div>
+            <p id="inspectDetail" class="mt-1 text-[11px] text-slate-600 dark:text-zinc-400"></p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button type="button" id="inspectFocus" class="rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-slate-950 transition hover:bg-amber-400">Focus camera</button>
+              <button type="button" id="inspectPreset" class="hidden rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">Open view</button>
+            </div>
+          </div>
+
+          <div id="quickDossier" class="absolute bottom-3 left-3 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm border border-slate-200 dark:border-zinc-800 p-2.5 rounded-lg shadow-md max-w-sm flex items-start gap-3 text-xs transition-all pointer-events-auto">
+            <div id="dossierAvatar" class="w-8 h-8 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center font-bold text-slate-700 dark:text-zinc-200 border border-slate-200 dark:border-zinc-700">D</div>
+            <div class="flex-1">
+              <div class="flex items-center justify-between gap-2">
+                <span id="dossierName" class="font-semibold text-slate-900 dark:text-white truncate">No live session</span>
+                <span id="dossierState" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700 shrink-0">OFFLINE</span>
+              </div>
+              <p id="dossierTask" class="text-slate-600 dark:text-zinc-400 text-[11px] mt-0.5 truncate">Start the bridge to stream real sessions</p>
+              <div class="flex items-center gap-3 mt-1 text-[10px] font-mono text-slate-600 dark:text-zinc-400">
+                <span class="truncate">Model: <strong id="dossierTool" class="text-slate-800 dark:text-zinc-200">—</strong></span>
+                <span class="shrink-0">Tokens: <strong id="dossierLoad" class="text-slate-800 dark:text-zinc-200">0</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <p class="absolute bottom-3 right-3 text-[10px] font-mono text-slate-600 dark:text-zinc-400 bg-white/80 dark:bg-zinc-900/80 px-2 py-1 rounded border border-slate-200/80 dark:border-zinc-800/80 pointer-events-none">
+            Hover &amp; click agents, workstations or live screens only
+          </p>
+        </div>
+
+        <div id="sessionGrid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-px bg-slate-100 dark:bg-zinc-800 border-t border-slate-100 dark:border-zinc-800 text-xs"></div>
+      </section>
+
+      <!-- ================= VIEW: TERMINAL (EVENTS) ================= -->
+      <section id="view-terminal" class="hidden bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm flex flex-col overflow-hidden transition-colors">
+        <div class="px-3 py-2 border-b border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2 bg-slate-50 dark:bg-zinc-900">
+          <div class="flex items-center gap-1" role="tablist" aria-label="Log filter">
+            <button type="button" id="logTab-all" role="tab" aria-selected="true" class="text-xs px-2.5 py-1 rounded font-medium bg-slate-200 dark:bg-zinc-700 text-slate-900 dark:text-white transition">All</button>
+            <button type="button" id="logTab-thoughts" role="tab" aria-selected="false" class="text-xs px-2.5 py-1 rounded font-medium text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Agent Thoughts</button>
+            <button type="button" id="logTab-tools" role="tab" aria-selected="false" class="text-xs px-2.5 py-1 rounded font-medium text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Tool Calls</button>
+            <button type="button" id="logTab-bash" role="tab" aria-selected="false" class="text-xs px-2.5 py-1 rounded font-medium text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Bash Shell</button>
+          </div>
+          <div class="flex items-center gap-1">
+            <button type="button" id="clearLogBtn" title="Clear terminal" class="p-1.5 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <span class="sr-only">Clear logs</span>
+            </button>
+            <button type="button" id="autoScrollBtn" aria-pressed="true" title="Toggle auto-scroll" class="p-1.5 text-slate-700 dark:text-zinc-200 rounded hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+              <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+              <span class="sr-only">Auto-scroll</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="terminalStreamBox" class="flex-1 min-h-[420px] max-h-[560px] p-3 overflow-y-auto font-mono text-[11px] leading-relaxed bg-slate-50/50 dark:bg-zinc-950/60 select-text" aria-live="polite"></div>
+
+        <div class="px-3 py-2 border-t border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center gap-2 font-mono text-[11px] text-slate-500 dark:text-zinc-500">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" aria-hidden="true"></span>
+          <span>Read-only live stream — prompts are sent from the OpenCode CLI</span>
+        </div>
+      </section>
+
+      <!-- ================= VIEW: ACTIVITY (DIFF + REASONING) ================= -->
+      <div id="view-activity" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1">
+        <section class="lg:col-span-7 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm flex flex-col overflow-hidden transition-colors">
+          <div class="px-3 py-2 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between bg-slate-50 dark:bg-zinc-900">
+            <h2 class="text-xs font-medium px-1 text-slate-800 dark:text-white">Modified Files</h2>
+            <p id="diffStatsBadge" class="text-[11px] font-mono text-slate-600 dark:text-zinc-400">
+              <span id="diffAdds" class="text-emerald-700 dark:text-emerald-300 font-medium">+0</span> / <span id="diffDels" class="text-rose-700 dark:text-rose-300 font-medium">-0</span>
+            </p>
+          </div>
+          <div class="flex-1 flex flex-col p-3 overflow-y-auto">
+            <div id="filePillContainer" class="flex flex-wrap gap-1.5 mb-2.5 text-xs font-mono"></div>
+            <div class="flex-1 bg-slate-50 dark:bg-zinc-950 rounded-lg border border-slate-200 dark:border-zinc-800 p-2.5 font-mono text-[11px] leading-5 overflow-x-auto text-slate-700 dark:text-zinc-300">
+              <div class="text-slate-600 dark:text-zinc-400 border-b border-slate-200 dark:border-zinc-800 pb-1 mb-1.5 flex justify-between gap-4">
+                <span id="activeDiffFilename" class="truncate">src/auth/jwt.service.ts</span>
+                <span id="activeDiffLang" class="text-[10px] shrink-0">TypeScript</span>
+              </div>
+              <pre id="diffCodeContent" class="overflow-x-auto"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="lg:col-span-5 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm flex flex-col overflow-hidden transition-colors">
+          <div class="px-3 py-2 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900">
+            <h2 class="text-xs font-medium text-slate-800 dark:text-white">Agent Reasoning</h2>
+          </div>
+          <div class="flex-1 p-3 overflow-y-auto">
+            <div id="thoughtStreamList" class="space-y-2 text-xs font-mono" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ================= CLI BRIDGE MODAL ================= -->
+    <div id="cliModal" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="cliModalTitle">
+      <div id="cliModalBackdrop" class="absolute inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm"></div>
+      <div class="relative h-full flex items-center justify-center p-4 pointer-events-none">
+        <div class="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-xl max-w-lg w-full p-5 pointer-events-auto">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 rounded bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-800 dark:text-zinc-200">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/></svg>
+              </div>
+              <h3 id="cliModalTitle" class="text-sm font-semibold text-slate-900 dark:text-white">Connect Local OpenCode CLI</h3>
+            </div>
+            <button type="button" id="modalCloseBtn" class="p-1 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-zinc-800 transition">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              <span class="sr-only">Close dialog</span>
+            </button>
+          </div>
+
+          <form id="bridgeForm" class="my-3 space-y-3 text-xs text-slate-600 dark:text-zinc-300">
+            <p>Stream your local OpenCode sessions into this office. The bridge auto-discovers OpenCode and relays real sessions, models, token usage, events and file diffs over WebSocket. The dashboard is read-only.</p>
+
+            <div class="bg-slate-50 dark:bg-zinc-950 p-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 font-mono text-[11px]">
+              <p class="text-slate-600 dark:text-zinc-400 mb-1">Start the bridge in another terminal:</p>
+              <code class="text-slate-800 dark:text-zinc-200 select-all block">npm run bridge</code>
+              <p class="text-slate-500 dark:text-zinc-500 mt-1">Auto-discovers the local service · listens on ws://127.0.0.1:4040</p>
+            </div>
+
+            <div class="space-y-1">
+              <label for="wsInputUrl" class="font-medium text-slate-700 dark:text-zinc-300 block">Bridge WebSocket URL</label>
+              <div class="flex gap-2">
+                <input type="text" id="wsInputUrl" value="ws://127.0.0.1:4040" spellcheck="false" class="flex-1 bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-slate-400" />
+                <button type="submit" id="wsConnectBtn" class="bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 font-medium px-3 py-1.5 rounded transition">Connect</button>
+              </div>
+            </div>
+          </form>
+
+          <div class="pt-3 border-t border-slate-100 dark:border-zinc-800 flex justify-end">
+            <button type="button" id="disconnectBridgeBtn" class="px-3 py-1.5 rounded text-xs text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition">Disconnect live bridge</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= TOASTS ================= -->
+    <div id="toastBox" class="fixed bottom-4 right-4 z-50 flex flex-col gap-1.5 pointer-events-none" aria-live="polite"></div>
+    </div>
+    <!-- /#app -->
+
+    <script>
+      /* Failsafe: never trap the user behind the splash if JS boot fails. */
+      setTimeout(function () {
+        if (!document.documentElement.classList.contains('app-ready')) {
+          document.documentElement.classList.add('app-ready');
+          var s = document.getElementById('bootSplash');
+          if (s) s.remove();
+        }
+      }, 7000);
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
