@@ -21,6 +21,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { OpenCode } from '@opencode/client';
 import { Service } from '@opencode/client/service';
 import { clean, errorText } from './sanitize';
+import { FileSources, type FileSessionEvent } from './file-sources';
 
 /* ------------------------------------------------------------------ config */
 interface Args {
@@ -28,10 +29,12 @@ interface Args {
   port: number;
   url?: string;
   directory?: string;
+  noCodex: boolean;
+  noClaude: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { host: '127.0.0.1', port: 4040 };
+  const args: Args = { host: '127.0.0.1', port: 4040, noCodex: false, noClaude: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const next = argv[i + 1];
@@ -48,9 +51,13 @@ function parseArgs(argv: string[]): Args {
     } else if (flag === '--directory' && next) {
       args.directory = next;
       i++;
+    } else if (flag === '--no-codex') {
+      args.noCodex = true;
+    } else if (flag === '--no-claude') {
+      args.noClaude = true;
     } else if (flag === '--help' || flag === '-h') {
       console.log(
-        'OpenCode bridge\n  --port <n>        WebSocket port (default 4040)\n  --host <addr>     Bind address (default 127.0.0.1)\n  --url <url>       Explicit OpenCode service URL (skip discovery)\n  --directory <dir> Only forward events from this project directory',
+        'OpenCode mansion bridge\n  --port <n>        WebSocket port (default 4040)\n  --host <addr>     Bind address (default 127.0.0.1)\n  --url <url>       Explicit OpenCode service URL (skip discovery)\n  --directory <dir> Only forward events from this project directory\n  --no-codex        Do not tail Codex CLI sessions (~/.codex)\n  --no-claude       Do not tail Claude Code sessions (~/.claude)',
       );
       process.exit(0);
     }
@@ -94,6 +101,8 @@ interface SessionActivity {
 
 interface SessionSummary {
   id: string;
+  /** Where the session comes from: the OpenCode service or a local transcript. */
+  source: 'opencode' | 'codex' | 'claude';
   title: string;
   directory: string;
   persona: AgentKey;
@@ -145,6 +154,27 @@ let latestTotals = { tokens: 0, cost: 0 };
 let latestRunning = 0;
 let client: ReturnType<typeof OpenCode.make> | null = null;
 let serviceInfo: { url: string; version?: string } | null = null;
+
+/** Codex CLI + Claude Code transcripts, tailed locally (read-only). */
+const fileSources = new FileSources({ codex: !args.noCodex, claude: !args.noClaude });
+
+function sourcesInfo(): Record<string, unknown> {
+  const roots = fileSources.roots();
+  return {
+    opencode: client ? (serviceInfo?.url ?? true) : false,
+    codex: roots.codex,
+    claude: roots.claude,
+  };
+}
+
+function isFileSession(id: string): boolean {
+  return id.startsWith('codex:') || id.startsWith('claude:');
+}
+
+// Broadcast freshly tailed Codex/Claude records through the same pipeline.
+fileSources.on('event', (event: FileSessionEvent) => {
+  emit(event.sessionID, event.type, event.message, event.tool);
+});
 
 function fnv(value: string): number {
   let h = 0x811c9dc5;
@@ -238,8 +268,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     res.end(
       JSON.stringify({
         ok: true,
-        bridge: '2.0.0',
+        bridge: '3.0.0',
         service: serviceInfo,
+        sources: sourcesInfo(),
         clients: wss.clients.size,
         sessions: latestSessions.length,
         running: latestRunning,
@@ -294,8 +325,9 @@ wss.on('connection', (ws) => {
 
   send(ws, {
     kind: 'hello',
-    bridge: '2.0.0',
+    bridge: '3.0.0',
     service: serviceInfo,
+    sources: sourcesInfo(),
     now: Date.now(),
   });
   send(ws, sessionsPayload());
@@ -316,24 +348,37 @@ async function handleRequest(ws: WebSocket, raw: string): Promise<void> {
   if (msg['kind'] !== 'request' || typeof msg['id'] !== 'string') return;
   const requestId = msg['id'] as string;
 
-  if (msg['op'] === 'diff' && typeof msg['sessionID'] === 'string' && client) {
-    try {
-      const data = await client.session.diff({ sessionID: msg['sessionID'] as string });
-      send(ws, { kind: 'response', id: requestId, ok: true, data });
-    } catch (err) {
-      send(ws, { kind: 'response', id: requestId, ok: false, error: errorText(err) });
+  if (msg['op'] === 'diff' && typeof msg['sessionID'] === 'string') {
+    if (isFileSession(msg['sessionID'])) {
+      // File-based sources have no live diff; the UI falls back gracefully.
+      send(ws, { kind: 'response', id: requestId, ok: true, data: [] });
+      return;
     }
-    return;
+    if (client) {
+      try {
+        const data = await client.session.diff({ sessionID: msg['sessionID'] as string });
+        send(ws, { kind: 'response', id: requestId, ok: true, data });
+      } catch (err) {
+        send(ws, { kind: 'response', id: requestId, ok: false, error: errorText(err) });
+      }
+      return;
+    }
   }
 
-  if (msg['op'] === 'history' && typeof msg['sessionID'] === 'string' && client) {
-    try {
-      const data = await historyFor(msg['sessionID'] as string);
-      send(ws, { kind: 'response', id: requestId, ok: true, data });
-    } catch (err) {
-      send(ws, { kind: 'response', id: requestId, ok: false, error: errorText(err) });
+  if (msg['op'] === 'history' && typeof msg['sessionID'] === 'string') {
+    if (isFileSession(msg['sessionID'])) {
+      send(ws, { kind: 'response', id: requestId, ok: true, data: { messages: [], files: [] } });
+      return;
     }
-    return;
+    if (client) {
+      try {
+        const data = await historyFor(msg['sessionID'] as string);
+        send(ws, { kind: 'response', id: requestId, ok: true, data });
+      } catch (err) {
+        send(ws, { kind: 'response', id: requestId, ok: false, error: errorText(err) });
+      }
+      return;
+    }
   }
 
   send(ws, { kind: 'response', id: requestId, ok: false, error: 'unsupported request' });
@@ -672,89 +717,130 @@ async function seedActivities(): Promise<void> {
 let refreshing: Promise<void> | null = null;
 
 async function refreshSessions(): Promise<void> {
-  if (!client) return;
   if (refreshing) return refreshing;
   const now = Date.now();
 
   refreshing = (async () => {
+    const merged: SessionSummary[] = [];
+    let tokens = 0;
+    let cost = 0;
+
     try {
-      const [listed, active] = await Promise.all([
-        client!.session.list(),
-        client!.session.active().catch(() => ({}) as Record<string, unknown>),
-      ]);
-      const activeIds = new Set(Object.keys(active ?? {}).filter((id) => (active as Record<string, unknown>)[id]));
-      const cutoff = now - SESSION_WINDOW_MS;
+      /* ---------------------------------------------------- OpenCode service */
+      if (client) {
+        try {
+          const [listed, active] = await Promise.all([
+            client.session.list(),
+            client.session.active().catch(() => ({}) as Record<string, unknown>),
+          ]);
+          const activeIds = new Set(
+            Object.keys(active ?? {}).filter((id) => (active as Record<string, unknown>)[id]),
+          );
+          const cutoff = now - SESSION_WINDOW_MS;
 
-      const items = listed.data
-        .filter((item) => activeIds.has(item.id) || (item.time?.updated ?? 0) >= cutoff)
-        .sort((a, b) => {
-          const aRun = activeIds.has(a.id) ? 1 : 0;
-          const bRun = activeIds.has(b.id) ? 1 : 0;
-          if (aRun !== bRun) return bRun - aRun;
-          return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
-        })
-        .slice(0, MAX_SESSIONS);
+          const items = listed.data
+            .filter((item) => activeIds.has(item.id) || (item.time?.updated ?? 0) >= cutoff)
+            .sort((a, b) => {
+              const aRun = activeIds.has(a.id) ? 1 : 0;
+              const bRun = activeIds.has(b.id) ? 1 : 0;
+              if (aRun !== bRun) return bRun - aRun;
+              return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
+            });
 
-      // Distinct personas for the sessions currently shown.
+          items.forEach((item) => {
+            const meta = sessionMetaFor(item.id);
+            const t = tokenTotal(item.tokens);
+            const model = item.model
+              ? { providerID: item.model.providerID, modelID: item.model.id, label: modelLabel(item.model) }
+              : undefined;
+            const status: SessionStatus = activeIds.has(item.id) ? 'running' : item.outcome === 'failed' ? 'failed' : 'idle';
+            const title = titleFor(item);
+            meta.title = title;
+            tokens += t;
+            cost += typeof item.cost === 'number' && Number.isFinite(item.cost) ? item.cost : 0;
+            merged.push({
+              id: item.id,
+              source: 'opencode',
+              title,
+              directory: item.location?.directory ?? '',
+              persona: meta.persona,
+              agent: item.agent,
+              model,
+              status,
+              outcome: item.outcome,
+              tokens: t,
+              cost: typeof item.cost === 'number' ? item.cost : 0,
+              created: item.time?.created ?? 0,
+              updated: item.time?.updated ?? 0,
+              idle: item.time?.idle,
+              activity: meta.activity,
+            });
+          });
+        } catch (err) {
+          console.warn(`[bridge] OpenCode session refresh failed: ${errorText(err)}`);
+        }
+      }
+
+      /* ----------------------------------------- Codex CLI + Claude Code files */
+      let fileItems = fileSources.poll();
+      if (args.directory) {
+        const needle = args.directory.replace(/\\/g, '/').toLowerCase();
+        fileItems = fileItems.filter((f) => f.directory.replace(/\\/g, '/').toLowerCase().startsWith(needle));
+      }
+      for (const file of fileItems) {
+        const meta = sessionMetaFor(file.id);
+        const title = shortTitle(file.title);
+        meta.title = title;
+        const activity: SessionActivity | undefined = file.lastEventText
+          ? { type: file.lastEventType ?? 'INFO', text: clean(file.lastEventText, 300), at: file.lastEventAt ?? now }
+          : undefined;
+        if (activity && (!meta.activity || meta.activity.at <= activity.at)) meta.activity = activity;
+        tokens += file.tokens;
+        merged.push({
+          id: file.id,
+          source: file.source,
+          title,
+          directory: file.directory,
+          persona: meta.persona,
+          agent: file.source === 'codex' ? 'codex' : 'claude',
+          model: file.model,
+          status: file.running ? 'running' : 'idle',
+          tokens: file.tokens,
+          cost: 0,
+          created: file.created,
+          updated: file.updated,
+          activity: meta.activity,
+        });
+      }
+
+      /* ------------------------------- distinct personas across the merged set */
+      merged.sort((a, b) => {
+        const aRun = a.status === 'running' ? 1 : 0;
+        const bRun = b.status === 'running' ? 1 : 0;
+        if (aRun !== bRun) return bRun - aRun;
+        return b.updated - a.updated;
+      });
       const used = new Set<AgentKey>();
-      items.forEach((item) => {
-        const meta = sessionMetaFor(item.id);
+      for (const session of merged) {
+        const meta = sessionMetaFor(session.id);
         if (used.has(meta.persona)) {
           const free = AGENT_POOL.find((p) => !used.has(p));
           if (free) meta.persona = free;
         }
         used.add(meta.persona);
-      });
+        session.persona = meta.persona;
+      }
 
-      let tokens = 0;
-      let cost = 0;
-      latestSessions = items.map((item) => {
-        const meta = sessionMetaFor(item.id);
-        const t = tokenTotal(item.tokens);
-        tokens += t;
-        cost += typeof item.cost === 'number' && Number.isFinite(item.cost) ? item.cost : 0;
-        const model = item.model
-          ? { providerID: item.model.providerID, modelID: item.model.id, label: modelLabel(item.model) }
-          : undefined;
-        const status: SessionStatus = activeIds.has(item.id) ? 'running' : item.outcome === 'failed' ? 'failed' : 'idle';
-        const title = titleFor(item);
-        meta.title = title;
-        return {
-          id: item.id,
-          title,
-          directory: item.location?.directory ?? '',
-          persona: meta.persona,
-          agent: item.agent,
-          model,
-          status,
-          outcome: item.outcome,
-          tokens: t,
-          cost: typeof item.cost === 'number' ? item.cost : 0,
-          created: item.time?.created ?? 0,
-          updated: item.time?.updated ?? 0,
-          idle: item.time?.idle,
-          activity: meta.activity,
-        };
-      });
+      latestSessions = merged.slice(0, MAX_SESSIONS);
       latestTotals = { tokens, cost: Number(cost.toFixed(4)) };
-      latestRunning = lastSessionsRunning(activeIds, items);
+      latestRunning = latestSessions.filter((s) => s.status === 'running').length;
       broadcast(sessionsPayload());
-    } catch (err) {
-      console.warn(`[bridge] session refresh failed: ${errorText(err)}`);
     } finally {
       refreshing = null;
     }
   })();
 
   return refreshing;
-}
-
-function lastSessionsRunning(activeIds: Set<string>, items: { id: string }[]): number {
-  let count = 0;
-  items.forEach((i) => {
-    if (activeIds.has(i.id)) count++;
-  });
-  return count;
 }
 
 /* -------------------------------------------------------------------- boot */
@@ -783,32 +869,46 @@ async function resubscribe(c: ReturnType<typeof OpenCode.make>): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const roots = fileSources.roots();
   const endpoint = args.url ? { url: args.url, auth: undefined } : await Service.discover();
   if (!endpoint) {
-    console.error('[bridge] No running OpenCode service found. Start OpenCode, or pass --url <url>.');
-    process.exit(1);
+    const sources = [roots.codex ? 'Codex CLI' : '', roots.claude ? 'Claude Code' : ''].filter(Boolean);
+    if (sources.length > 0) {
+      console.warn(`[bridge] No OpenCode service found — running with file sources only (${sources.join(' + ')}).`);
+    } else {
+      console.error(
+        '[bridge] No running OpenCode service found. Start OpenCode, pass --url <url>, or run Codex / Claude Code.',
+      );
+      process.exit(1);
+    }
   }
 
-  serviceInfo = { url: endpoint.url };
-  client = OpenCode.make({
-    baseUrl: endpoint.url,
-    headers: Service.headers(endpoint as Parameters<typeof Service.headers>[0]),
-  });
+  if (endpoint) {
+    serviceInfo = { url: endpoint.url };
+    client = OpenCode.make({
+      baseUrl: endpoint.url,
+      headers: Service.headers(endpoint as Parameters<typeof Service.headers>[0]),
+    });
 
-  try {
-    const info = await client.server.info();
-    serviceInfo.version = info.version;
-  } catch (err) {
-    console.warn(`[bridge] could not read server info: ${errorText(err)}`);
+    try {
+      const info = await client.server.info();
+      serviceInfo.version = info.version;
+    } catch (err) {
+      console.warn(`[bridge] could not read server info: ${errorText(err)}`);
+    }
   }
 
   await seedActivities();
   await refreshSessions();
 
   await new Promise<void>((resolve) => server.listen(args.port, args.host, resolve));
-  console.log(`[bridge] OpenCode ${serviceInfo.version ?? ''} at ${serviceInfo.url}`);
+  if (serviceInfo) console.log(`[bridge] OpenCode ${serviceInfo.version ?? ''} at ${serviceInfo.url}`);
+  if (roots.codex) console.log(`[bridge] Codex CLI transcripts at ${roots.codex}`);
+  if (roots.claude) console.log(`[bridge] Claude Code transcripts at ${roots.claude}`);
   console.log(`[bridge] listening on ws://${args.host}:${args.port}  (health: http://${args.host}:${args.port}/health)`);
-  console.log(`[bridge] ${latestSessions.length} session(s) · ${latestRunning} running · ${fmtTokens(latestTotals.tokens)} tokens`);
+  console.log(
+    `[bridge] ${latestSessions.length} session(s) · ${latestRunning} running · ${fmtTokens(latestTotals.tokens)} tokens`,
+  );
 
   setInterval(() => {
     if (wss.clients.size > 0) void refreshSessions();
@@ -826,7 +926,7 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  void resubscribe(client);
+  if (client) void resubscribe(client);
 }
 
 main().catch((err) => {

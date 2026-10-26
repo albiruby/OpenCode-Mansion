@@ -6052,6 +6052,14 @@ export function initScene(): boolean {
       // Exposed for the verification scripts: navigation, collision, bodies.
       const debug: Record<string, unknown> = {
         world: collisionWorld,
+        assigned: () => [...assignedPersonas],
+        agents: () =>
+          AGENT_IDS.map((id) => ({
+            id,
+            bubble: AGENTS[id].bubbleText,
+            state: AGENTS[id].state,
+            mesh: !!AGENTS[id].meshGroup,
+          })),
         bodies: () => [
           ...Array.from(pose.values()).map((p) => ({ x: p.x, z: p.z })),
           ...crowdMembers.map((m) => ({ x: m.pose.x, z: m.pose.z })),

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenCode Mansion — 3D Virtual Office HQ</title>
-    <meta name="description" content="3D micro-office dashboard streaming real OpenCode sessions: agents, models, token usage, events, diffs and reasoning." />
+    <meta name="description" content="3D micro-office dashboard streaming real OpenCode, Codex CLI and Claude Code sessions: agents, models, token usage, events, diffs and reasoning." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -95,7 +95,7 @@
           <div>
             <div class="flex items-center gap-2">
               <h1 class="text-sm font-semibold tracking-tight text-slate-900 dark:text-white">OpenCode Mansion</h1>
-              <span class="text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700/60">v5.6.1</span>
+              <span class="text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700/60">v5.7.0</span>
               <span id="connectionPill" class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">
                 <span id="statusDot" class="w-1.5 h-1.5 rounded-full bg-rose-500" aria-hidden="true"></span>
                 <span id="modeLabel">Bridge Offline</span>
@@ -341,7 +341,7 @@
           </div>
 
           <form id="bridgeForm" class="my-3 space-y-3 text-xs text-slate-600 dark:text-zinc-300">
-            <p>Stream your local OpenCode sessions into this office. The bridge auto-discovers OpenCode and relays real sessions, models, token usage, events and file diffs over WebSocket. The dashboard is read-only.</p>
+            <p>Stream your local coding-agent sessions into this office. The bridge auto-discovers OpenCode <strong>and</strong> tails Codex CLI (<code>~/.codex/sessions</code>) and Claude Code (<code>~/.claude/projects</code>) transcripts straight from disk — one dashboard for all three. Real sessions, models, token usage, events and file diffs over WebSocket; everything is read-only.</p>
 
             <div class="bg-slate-50 dark:bg-zinc-950 p-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 font-mono text-[11px]">
               <p class="text-slate-600 dark:text-zinc-400 mb-1">Start the bridge in another terminal:</p>

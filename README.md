@@ -2,7 +2,7 @@
 
 # 🏝️ OpenCode Mansion
 
-**Your OpenCode agent squad, living as a 3D AI campus in the Amazon.**
+**Your coding-agent squad — OpenCode, Codex CLI & Claude Code — living as a 3D AI campus in the Amazon.**
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
@@ -12,9 +12,10 @@
 [![100% local](https://img.shields.io/badge/data-100%25__local__only-success)](#privacy--safety)
 [![unofficial](https://img.shields.io/badge/unofficial-community-yellow)](#disclaimer)
 
-Real local OpenCode sessions — titles, agents, models, token usage, live events,
-reasoning and diffs — rendered as animated agents working on an open-air campus,
-ringed by a dense multi-species rainforest with a black-water river.
+Real local agent sessions from **OpenCode**, **Codex CLI** and **Claude Code** — titles,
+models, token usage, live events, reasoning and diffs — rendered as animated
+agents working on an open-air campus, ringed by a dense multi-species rainforest
+with a black-water river.
 **Zero fake data. Zero telemetry. Nothing leaves your machine.**
 
 ![The whole estate from above](docs/gallery/01-hero-light.png)
@@ -26,6 +27,11 @@ ringed by a dense multi-species rainforest with a black-water river.
 - 🔴 **Live-first** — sessions, statuses, models, tokens and cost stream from your
   own running OpenCode through a **read-only, secret-redacting local bridge**.
   No demo mode, no placeholder data.
+- 🔌 **Three CLIs, one bridge (v5.7)** — besides OpenCode, the bridge auto-detects
+  **Codex CLI** (`~/.codex/sessions`) and **Claude Code** (`~/.claude/projects`)
+  transcripts on disk and merges them into the same campus, with a `CX` / `CC`
+  badge on every session card, tab and dossier. Read-only, 100% local, works
+  even when OpenCode isn't running.
 -  **9 animated agents per session** (1 lead + 8 squad) — CC0 Quaternius rigs
   with per-agent tinted outfits, cross-faded idle/walk clips synced to real speed.
 - 🌍 **Six world presets with real site plans** — Forest Campus, Floating
@@ -112,9 +118,10 @@ npm install
 npm start
 ```
 
-Open <http://localhost:5180> while OpenCode is running — your real sessions
-appear as agents working in the campus. The bridge **auto-discovers** your local
-OpenCode service; nothing else to configure. Options:
+Open <http://localhost:5180> — your real sessions appear as agents working in the
+campus. The bridge **auto-discovers your local OpenCode service** and, if
+**Codex CLI** and/or **Claude Code** are installed, tails their session
+transcripts too (`CX` / `CC` chips mark those workers). Options:
 
 ```bash
 npm start -- --url http://127.0.0.1:4099   # skip discovery, point at a port
@@ -139,6 +146,48 @@ fallback, and the status chip reports what loaded.
 - Secret-looking values (tokens, API keys) are redacted before anything reaches
   the browser.
 - Session titles/directories are rendered locally from your own OpenCode data.
+- Codex/Claude transcripts are only **tailed locally** (append-only reads of your
+  own JSONL files); nothing is ever written back to `~/.codex` or `~/.claude`.
+
+## 🔌 Three CLIs, one bridge (v5.7)
+
+`npm start` (or `npm run bridge`) gives you a single campus for **all three**
+coding agents — no configuration needed:
+
+| Source | Where it is read from | What the bridge maps |
+|---|---|---|
+| **OpenCode** | local service (auto-discovered, `--url` to pin) | sessions, status, models, tokens, cost, live events, diffs, history |
+| **Codex CLI** | `$CODEX_HOME` (default `~/.codex`) `sessions/**/rollout-*.jsonl` | first prompt as the title, `gpt-*` model, cumulative token usage, reasoning/tool/task events |
+| **Claude Code** | `$CLAUDE_CONFIG_DIR` (default `~/.claude`) `projects/**/*.jsonl` | `summary`/first prompt as title, `claude-*` model, summed token usage, thinking/tool/tool-result events |
+
+How it works:
+
+- sessions from all three sources are merged, sorted (running first, then most
+  recent) and capped at the same visible list; each keeps a distinct avatar
+  persona;
+- every non-OpenCode session gets a small **CX** (Codex) or **CC** (Claude) chip
+  in the session tabs, session cards and the dossier, so you always know which
+  CLI a worker belongs to;
+- "running" = the transcript was written to in the last few seconds — a Codex or
+  Claude turn in progress shows as a running agent, and its events stream into
+  the terminal view and activity log while it works;
+- file transcripts are tailed **incrementally** (append-only offsets), so multi-MB
+  sessions cost almost nothing per poll;
+- `GET /health` and the `hello` frame report which sources were detected:
+  `{ "sources": { "opencode": "...", "codex": "~/.codex", "claude": "~/.claude" } }`.
+
+Options:
+
+```bash
+npm run bridge -- --no-codex      # ignore Codex CLI transcripts
+npm run bridge -- --no-claude     # ignore Claude Code transcripts
+CODEX_HOME=/custom npm run bridge        # non-standard Codex home (env)
+CLAUDE_CONFIG_DIR=/custom npm run bridge # non-standard Claude home (env)
+```
+
+If no OpenCode service is running, the bridge **keeps going** with just the
+Codex/Claude sources (and says so in the log) — a Claude-only or Codex-only
+setup still gets its campus.
 
 ## Tech stack
 
@@ -191,6 +240,8 @@ empty states with the command to start it.
 | Reasoning / answers | `session.context()` history (real assistant reasoning/text) + live `THOUGHT` events |
 | Diffs | `session.diff()` (uncommitted patch); when empty, **files touched** from real `write`/`edit` tool calls in history |
 | Event stream | native OpenCode events (tool, shell, reasoning, text, usage, lifecycle) |
+| Codex sessions | `~/.codex/sessions/**/rollout-*.jsonl` tailed incrementally: first prompt (title), `turn_context` model, `token_count` totals, reasoning/tool/task events |
+| Claude sessions | `~/.claude/projects/**/*.jsonl` tailed incrementally: `summary`/first prompt (title), `message.model`, summed `usage` tokens, thinking/tool/tool-result events |
 
 Office avatars are only a visualization of sessions — a deterministic, distinct
 persona is assigned per visible session (first 10). With more than 10 sessions the
@@ -271,15 +322,18 @@ campus, and all data in the scene remains live.
 WebSocket JSON:
 
 - **server → client**
-  - `{ kind: 'hello', bridge, service }`
-  - `{ kind: 'sessions', sessions: [...], totals, running, ts }` (on connect + every 3 s and after changes)
+  - `{ kind: 'hello', bridge, service, sources }` — `sources` reports which of OpenCode / Codex / Claude were detected
+  - `{ kind: 'sessions', sessions: [...], totals, running, ts }` (on connect + every 3 s and after changes); each session carries `source: 'opencode' | 'codex' | 'claude'`
   - `{ kind: 'event', agent, type, tool?, message, session?, sessionTitle? }`
   - `{ kind: 'response', id, ok, data | error }`
 - **client → server**
-  - `{ kind: 'request', id, op: 'diff', sessionID }`
-  - `{ kind: 'request', id, op: 'history', sessionID }` → `{ messages, files }`
+  - `{ kind: 'request', id, op: 'diff', sessionID }` (file-based sessions answer `[]`)
+  - `{ kind: 'request', id, op: 'history', sessionID }` → `{ messages, files }` (file-based sessions answer empty)
 
-Read-only by design: the bridge never creates sessions or sends prompts.
+File-based session ids are namespaced: `codex:<rollout file>` / `claude:<uuid>`.
+
+Read-only by design: the bridge never creates sessions or sends prompts, and
+never writes to the Codex/Claude transcript files.
 
 ### Bridge privacy & safety
 
@@ -296,6 +350,8 @@ npm run bridge -- --port 4041
 npm run bridge -- --host 0.0.0.0
 npm run bridge -- --directory "D:\Path\To\Project"
 npm run bridge -- --url http://127.0.0.1:28894
+npm run bridge -- --no-codex       # don't tail ~/.codex
+npm run bridge -- --no-claude      # don't tail ~/.claude
 ```
 
 Health/status: `http://127.0.0.1:4040/health`.

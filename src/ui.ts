@@ -11,6 +11,7 @@ import type {
   LogEntry,
   LogType,
   RealFileDiff,
+  SessionSource,
   SessionSummary,
   ViewId,
 } from './types';
@@ -696,6 +697,27 @@ function initDiffPanel(): void {
   if (statsEl) statsEl.title = 'Additions / deletions of the selected file';
 }
 
+/* ------------------------------------------------------- source badge */
+const SOURCE_INFO: Record<Exclude<SessionSource, 'opencode'>, { label: string; chip: string; color: string }> = {
+  codex: { label: 'Codex CLI', chip: 'CX', color: '#f59e0b' },
+  claude: { label: 'Claude Code', chip: 'CC', color: '#fb923c' },
+};
+
+function sourceInfo(session: SessionSummary): { label: string; chip: string; color: string } | null {
+  if (!session.source || session.source === 'opencode') return null;
+  return SOURCE_INFO[session.source] ?? null;
+}
+
+function sourceChip(session: SessionSummary): HTMLSpanElement | null {
+  const info = sourceInfo(session);
+  if (!info) return null;
+  const chip = el('span', 'shrink-0 rounded px-1 font-mono text-[9px] leading-4', info.chip);
+  chip.style.color = info.color;
+  chip.style.border = `1px solid ${info.color}66`;
+  chip.title = info.label;
+  return chip;
+}
+
 /* ------------------------------------------------------- session tabs bar */
 function initSessionTabs(): void {
   const tabs = $('sessionTabs');
@@ -734,6 +756,8 @@ function initSessionTabs(): void {
       btn.appendChild(dot);
       btn.appendChild(el('span', 'font-mono opacity-70', AGENTS[session.persona].name));
       btn.appendChild(el('span', 'max-w-[16rem] truncate', session.title));
+      const chip = sourceChip(session);
+      if (chip) btn.appendChild(chip);
       btn.addEventListener('click', () => sessionStore.select(session.id));
       tabs.appendChild(btn);
     });
@@ -758,10 +782,18 @@ function initSessionPanel(): void {
 
   const updateAgents = (): void => {
     const assigned = new Set<AgentId>();
+    // Avatars are shared by many sessions (10 personas, up to 30 sessions), so
+    // work out which personas a running session owns BEFORE touching any state —
+    // an idle duplicate of the same persona must never clobber a working one.
+    const runningPersonas = new Set<AgentId>();
+    sessionStore.sessions.forEach((session) => {
+      if (session.status === 'running') runningPersonas.add(session.persona);
+    });
     sessionStore.sessions.forEach((session) => {
       const ag = AGENTS[session.persona];
       assigned.add(session.persona);
-      if (session.status === 'running' && ag.state !== 'COFFEE') {
+      if (runningPersonas.has(ag.id)) {
+        if (session.status !== 'running' || ag.state === 'COFFEE') return;
         ag.state = stateForActivity(session);
         ag.bubbleText = short(session.title, 44);
       } else if (session.status !== 'running') {
@@ -835,9 +867,16 @@ function initSessionPanel(): void {
       dot.style.backgroundColor = hexColor(ag.color);
       left.appendChild(dot);
       left.appendChild(el('span', 'font-semibold text-slate-800 dark:text-zinc-200 truncate', ag.name));
+      const info = sourceInfo(session);
       left.appendChild(
-        el('span', 'text-[10px] text-slate-500 dark:text-zinc-500 truncate', session.agent ? `agent ${session.agent}` : '—'),
+        el(
+          'span',
+          `text-[10px] truncate ${info ? '' : 'text-slate-500 dark:text-zinc-500'}`,
+          info ? info.label : session.agent ? `agent ${session.agent}` : '—',
+        ),
       );
+      const chip = sourceChip(session);
+      if (chip) left.appendChild(chip);
       top.appendChild(left);
       top.appendChild(statusBadge(session));
       card.appendChild(top);
@@ -889,10 +928,11 @@ function initSessionPanel(): void {
     }
 
     const ag = AGENTS[session.persona];
+    const info = sourceInfo(session);
     if (dName) dName.textContent = `${ag.name} · ${session.title}`;
     if (dState) dState.textContent = session.status.toUpperCase();
     if (dTask) dTask.textContent = session.title;
-    if (dTool) dTool.textContent = session.model?.label ?? '—';
+    if (dTool) dTool.textContent = info ? `${session.model?.label ?? 'model —'} · ${info.label}` : session.model?.label ?? '—';
     if (dLoad) dLoad.textContent = formatTokens(session.tokens);
     if (dAvatar) {
       dAvatar.textContent = ag.name[0] ?? '?';

@@ -67,6 +67,9 @@ export interface AgentDef {
 /* ---------------------------------------------------------------- sessions */
 export type SessionStatus = 'running' | 'idle' | 'failed';
 
+/** Where a session comes from: the OpenCode service or a local transcript. */
+export type SessionSource = 'opencode' | 'codex' | 'claude';
+
 export interface SessionActivity {
   type: LogType;
   text: string;
@@ -81,6 +84,7 @@ export interface SessionModel {
 
 export interface SessionSummary {
   id: string;
+  source?: SessionSource;
   title: string;
   directory: string;
   persona: AgentId;
