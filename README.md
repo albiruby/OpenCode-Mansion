@@ -61,6 +61,9 @@ Switching a world does not just repaint the estate — it re-plans it:
   camera presets follow automatically);
 - the five **district towers** form a different skyline — a ring, a beach arc,
   a scattered toy-block town, orbital pods or a neon wall of skyscrapers;
+- the **whole estate rotates** per world (Tropical turns 90°, Cyber and Toybox
+  turn 180°) — the office wing, boulevard and every landmark face a different
+  direction, so each map reads as a genuinely different place;
 - the **campus plate** itself changes: a sky-island cliff with floating
   boulders, an orbital pedestal with a beacon ring, a candy playmat border or a
   neon-edged deck. Forest and beach worlds keep the plain lawn.
@@ -72,9 +75,9 @@ same read-only data, same physics.
 
 | | | |
 |---|---|---|
-| **🌲 Forest Campus** — jungle belt, river, boulevard shuttle, pool east. | **☁️ Floating Kingdom** — sky island, pool west, courts north, boulders adrift. | **🌆 Cyber Megacity** — wall of neon towers, pool north, courts north-east. |
+| **🌲 Forest Campus** — jungle belt, river, boulevard shuttle, pool east. | **☁️ Floating Kingdom** — sky island, pool west, courts north, boulders adrift. | **🌆 Cyber Megacity** — neon tower wall, pool north-west, courts south-west, estate turned 180°. |
 | ![Forest world](docs/gallery/world-forest.png) | ![Floating world](docs/gallery/world-floating.png) | ![Cyberpunk world](docs/gallery/world-cyberpunk.png) |
-| **🏝️ Tropical Paradise** — beach ring, pool centre-south, village north-east. | **🧸 Toybox World** — playmat border, pool south-east, village west. | **🚀 Space Colony** — orbital pedestal, pool east, village west. |
+| **🏝️ Tropical Paradise** — beach ring, pool east, village east, estate turned 90°. | **🧸 Toybox World** — playmat border, pool north-west, courts south, estate turned 180°. | **🚀 Space Colony** — orbital pedestal, pool east, village west. |
 | ![Tropical world](docs/gallery/world-tropical.png) | ![Toybox world](docs/gallery/world-toybox.png) | ![Space world](docs/gallery/world-space.png) |
 
 ## 📸 Gallery

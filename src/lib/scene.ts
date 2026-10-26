@@ -32,6 +32,13 @@ let camera: THREE.PerspectiveCamera | null = null;
 let renderer: THREE.WebGLRenderer | null = null;
 let controls: OrbitControls | null = null;
 let contentRoot: THREE.Group | null = null;
+/**
+ * Inner build group in campus-local coordinates. contentRoot applies the
+ * world's site-plan rotation around the campus centre; everything (buildings,
+ * roads, characters, the shuttle) is built inside worldRoot, while the physics
+ * world and all sim coordinates keep using the unrotated campus frame.
+ */
+let worldRoot: THREE.Group | null = null;
 let realisticAssets: RealisticAssets | null = null;
 let realisticLoadStarted = false;
 
@@ -669,6 +676,21 @@ const BASE_PRESETS: Record<string, { pos: [number, number, number]; look: [numbe
 /** Camera presets for the active world (filled by rebuildPresets). */
 const PRESETS: Record<string, { pos: [number, number, number]; look: [number, number, number] }> = {};
 
+/**
+ * World coordinates for a campus-local point under the active site-plan
+ * rotation. The sim and physics run in the local frame; the camera does not.
+ */
+function worldPoint(x: number, z: number): { x: number; z: number } {
+  const deg = activeTheme().layout.rotate;
+  if (!deg) return { x, z };
+  const rad = (deg * Math.PI) / 180;
+  const dx = x - FLOOR_CENTER.x;
+  const dz = z - FLOOR_CENTER.z;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return { x: FLOOR_CENTER.x + dx * cos - dz * sin, z: FLOOR_CENTER.z + dx * sin + dz * cos };
+}
+
 function rebuildPresets(): void {
   const L = activeTheme().layout;
   const shift = (
@@ -678,17 +700,24 @@ function rebuildPresets(): void {
     pos: [p.pos[0] + dx, p.pos[1], p.pos[2] + dz],
     look: [p.look[0] + dx, p.look[1], p.look[2] + dz],
   });
-  for (const key of Object.keys(BASE_PRESETS)) PRESETS[key] = BASE_PRESETS[key]!;
-  PRESETS['pool'] = shift(BASE_PRESETS['pool']!, L.pool);
-  PRESETS['gym'] = shift(BASE_PRESETS['gym']!, L.pool);
-  PRESETS['padel'] = shift(BASE_PRESETS['padel']!, L.sports);
-  PRESETS['soccer'] = shift(BASE_PRESETS['soccer']!, L.sports);
-  PRESETS['basket'] = shift(BASE_PRESETS['basket']!, L.sports);
-  PRESETS['cinema'] = shift(BASE_PRESETS['cinema']!, L.attractions);
-  PRESETS['tennis'] = shift(BASE_PRESETS['tennis']!, L.attractions);
-  PRESETS['village'] = shift(BASE_PRESETS['village']!, L.village);
+  const rotate = (
+    p: { pos: [number, number, number]; look: [number, number, number] },
+  ): { pos: [number, number, number]; look: [number, number, number] } => {
+    const a = worldPoint(p.pos[0], p.pos[2]);
+    const b = worldPoint(p.look[0], p.look[2]);
+    return { pos: [a.x, p.pos[1], a.z], look: [b.x, p.look[1], b.z] };
+  };
+  for (const key of Object.keys(BASE_PRESETS)) PRESETS[key] = rotate(BASE_PRESETS[key]!);
+  PRESETS['pool'] = rotate(shift(BASE_PRESETS['pool']!, L.pool));
+  PRESETS['gym'] = rotate(shift(BASE_PRESETS['gym']!, L.pool));
+  PRESETS['padel'] = rotate(shift(BASE_PRESETS['padel']!, L.sports));
+  PRESETS['soccer'] = rotate(shift(BASE_PRESETS['soccer']!, L.sports));
+  PRESETS['basket'] = rotate(shift(BASE_PRESETS['basket']!, L.sports));
+  PRESETS['cinema'] = rotate(shift(BASE_PRESETS['cinema']!, L.attractions));
+  PRESETS['tennis'] = rotate(shift(BASE_PRESETS['tennis']!, L.attractions));
+  PRESETS['village'] = rotate(shift(BASE_PRESETS['village']!, L.village));
   const c = L.towers.command;
-  PRESETS['command'] = { pos: [c.x, 14, c.z + 20], look: [c.x, 6, c.z + 4] };
+  PRESETS['command'] = rotate({ pos: [c.x, 14, c.z + 20], look: [c.x, 6, c.z + 4] });
 }
 
 export function setCameraPreset(name: string): void {
@@ -699,7 +728,9 @@ export function setCameraPreset(name: string): void {
 
 function focusCameraOnAgent(id: AgentId): void {
   const p = pose.get(id) ?? { x: AGENTS[id].pos3D.x, z: AGENTS[id].pos3D.z, rot: 0 };
-  startTween(new THREE.Vector3(p.x, 6.5, p.z + 8), new THREE.Vector3(p.x, 1.3, p.z));
+  const w = worldPoint(p.x, p.z);
+  const wBehind = worldPoint(p.x, p.z + 8);
+  startTween(new THREE.Vector3(wBehind.x, 6.5, wBehind.z), new THREE.Vector3(w.x, 1.3, w.z));
 }
 
 /* --------------------------------------------------------------------------
@@ -5368,7 +5399,7 @@ function rebuildCrowd(isDark: boolean): void {
     }
   });
 
-  contentRoot.add(groupRoot);
+  (worldRoot ?? contentRoot).add(groupRoot);
   crowdSignature = sessions.map((s) => s.id).join('|');
 }
 
@@ -5614,6 +5645,7 @@ function clearContent(): void {
   contentRoot.traverse(disposeNode);
   scene.remove(contentRoot);
   contentRoot = null;
+  worldRoot = null;
   interactiveRoots.length = 0;
   crowdMembers.length = 0;
   crowdGroups.length = 0;
@@ -5821,50 +5853,59 @@ function buildContent(isDark: boolean): void {
   initLiveScreens();
   rebuildRoamTargets();
   registerCollisionGeometry();
+  // The whole estate is built in local campus coordinates inside worldRoot;
+  // contentRoot only carries the per-world rotation around the campus centre.
   contentRoot = new THREE.Group();
+  const rotY = (activeTheme().layout.rotate * Math.PI) / 180;
+  contentRoot.position.set(FLOOR_CENTER.x, 0, FLOOR_CENTER.z);
+  contentRoot.rotation.y = rotY;
+  worldRoot = new THREE.Group();
+  worldRoot.position.set(-FLOOR_CENTER.x, 0, -FLOOR_CENTER.z);
+  contentRoot.add(worldRoot);
+  const root = worldRoot;
   const L = activeTheme().layout;
 
-  buildSurroundings(contentRoot, isDark);
-  buildFloorAndWalls(contentRoot, isDark);
-  buildCampusBase(contentRoot, isDark);
-  buildDesks(contentRoot, isDark);
-  buildWhiteboard(contentRoot);
-  buildServerRack(contentRoot, isDark, 17.6, -11.4, -Math.PI / 8);
-  buildServerRack(contentRoot, isDark, 19.7, -10.8, -Math.PI / 8);
-  buildCoffeeStation(contentRoot, isDark);
-  buildLounge(contentRoot, isDark);
-  buildExtras(contentRoot, isDark);
-  buildRooms(contentRoot, isDark);
-  buildRoads(contentRoot, isDark);
-  buildCampusLandscaping(contentRoot, isDark);
-  buildSportsWing(contentRoot, isDark);
-  buildDistricts(contentRoot, isDark);
+  buildSurroundings(root, isDark);
+  buildFloorAndWalls(root, isDark);
+  buildCampusBase(root, isDark);
+  buildDesks(root, isDark);
+  buildWhiteboard(root);
+  buildServerRack(root, isDark, 17.6, -11.4, -Math.PI / 8);
+  buildServerRack(root, isDark, 19.7, -10.8, -Math.PI / 8);
+  buildCoffeeStation(root, isDark);
+  buildLounge(root, isDark);
+  buildExtras(root, isDark);
+  buildRooms(root, isDark);
+  buildRoads(root, isDark);
+  buildCampusLandscaping(root, isDark);
+  buildSportsWing(root, isDark);
+  buildDistricts(root, isDark);
 
   const attractions = new THREE.Group();
   attractions.position.set(L.attractions[0], 0, L.attractions[1]);
-  contentRoot.add(attractions);
+  root.add(attractions);
   buildAttractions(attractions, isDark);
 
   const village = new THREE.Group();
   village.position.set(L.village[0], 0, L.village[1]);
-  contentRoot.add(village);
+  root.add(village);
   buildAnimalVillage(village, isDark);
 
-  buildStaff(contentRoot, isDark);
-  buildAnimals(contentRoot);
-  buildAnimalProps(contentRoot, isDark);
-  buildVisitors(contentRoot, isDark);
-  buildButterflies(contentRoot);
-  if (L.shuttle) buildShuttle(contentRoot);
-  buildPendantLamps(contentRoot);
+  buildStaff(root, isDark);
+  buildAnimals(root);
+  buildAnimalProps(root, isDark);
+  buildVisitors(root, isDark);
+  buildButterflies(root);
+  if (L.shuttle) buildShuttle(root);
+  buildPendantLamps(root);
 
-  createPottedPlant(contentRoot, -7, -13.2, isDark);
-  createPottedPlant(contentRoot, 21, -8.5, isDark);
-  createPottedPlant(contentRoot, 20.6, 2.5, isDark);
-  createPottedPlant(contentRoot, -21, 3.2, isDark);
-  createPottedPlant(contentRoot, 2.5, -13.1, isDark);
-  createPottedPlant(contentRoot, -21, 12.5, isDark);
-  createPottedPlant(contentRoot, 3.2, 5.4, isDark);
+  createPottedPlant(root, -7, -13.2, isDark);
+  createPottedPlant(root, 21, -8.5, isDark);
+  createPottedPlant(root, 20.6, 2.5, isDark);
+  createPottedPlant(root, -21, 3.2, isDark);
+  createPottedPlant(root, 2.5, -13.1, isDark);
+  createPottedPlant(root, -21, 12.5, isDark);
+  createPottedPlant(root, 3.2, 5.4, isDark);
 
   AGENT_IDS.forEach((id) => {
     const ag = AGENTS[id];
@@ -5873,7 +5914,7 @@ function buildContent(isDark: boolean): void {
     ag.meshGroup = g;
     characterGroups.push(g);
     registerInteractive(g);
-    contentRoot!.add(g);
+    root.add(g);
   });
 
   scene.add(contentRoot);
@@ -5997,6 +6038,13 @@ export function initScene(): boolean {
     raycaster = new THREE.Raycaster();
 
     initWorldTheme();
+    // Start the camera on the (possibly rotated) overview for this world.
+    rebuildPresets();
+    const ov = PRESETS['overview'];
+    if (ov) {
+      camera.position.set(ov.pos[0], ov.pos[1], ov.pos[2]);
+      controls.target.set(ov.look[0], ov.look[1], ov.look[2]);
+    }
     applyLighting(isDark);
     buildContent(isDark);
     const env = (import.meta as unknown as { env?: { DEV?: boolean } }).env;

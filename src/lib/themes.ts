@@ -48,6 +48,11 @@ export interface WorldLayout {
   roads: boolean;
   /** Run the campus shuttle (needs roads). */
   shuttle: boolean;
+  /**
+   * Whole-campus rotation (0/90/180/270) around the campus centre. Rotates
+   * every building, road and character together — camera presets follow.
+   */
+  rotate: 0 | 90 | 180 | 270;
   /** Campus plate treatment. */
   base: 'jungle' | 'cliff' | 'beach' | 'playmat' | 'deck' | 'neon';
   towers: {
@@ -162,6 +167,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       attractions: [0, 0],
       roads: true,
       shuttle: true,
+      rotate: 0,
       base: 'jungle',
       towers: {
         engineering: { x: -15, z: -34, w: 12, d: 10, h: 13 },
@@ -215,6 +221,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       attractions: [-6, 8],
       roads: false,
       shuttle: false,
+      rotate: 0,
       base: 'cliff',
       towers: {
         engineering: { x: -46, z: 6, w: 12, d: 10, h: 9 },
@@ -277,6 +284,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       attractions: [-8, -4],
       roads: true,
       shuttle: true,
+      rotate: 180,
       base: 'neon',
       towers: {
         engineering: { x: -44, z: -24, w: 12, d: 10, h: 16 },
@@ -330,6 +338,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       attractions: [0, 0],
       roads: false,
       shuttle: false,
+      rotate: 90,
       base: 'beach',
       towers: {
         engineering: { x: 58, z: 58, w: 12, d: 10, h: 8 },
@@ -385,6 +394,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       attractions: [-4, -6],
       roads: false,
       shuttle: false,
+      rotate: 180,
       base: 'playmat',
       towers: {
         engineering: { x: -44, z: 20, w: 12, d: 10, h: 7 },
@@ -447,6 +457,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       attractions: [6, 0],
       roads: false,
       shuttle: false,
+      rotate: 0,
       base: 'deck',
       towers: {
         engineering: { x: -46, z: 0, w: 12, d: 10, h: 7 },
