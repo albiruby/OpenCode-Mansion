@@ -55,6 +55,8 @@ export interface WorldLayout {
   rotate: 0 | 90 | 180 | 270;
   /** Campus plate treatment. */
   base: 'jungle' | 'cliff' | 'beach' | 'playmat' | 'deck' | 'neon';
+  /** Silhouette for the four district towers (command stays a block tower). */
+  towerStyle: 'block' | 'spire' | 'hut' | 'stack' | 'pod' | 'tree';
   towers: {
     engineering: TowerSpec;
     research: TowerSpec;
@@ -169,6 +171,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       shuttle: true,
       rotate: 0,
       base: 'jungle',
+      towerStyle: 'block',
       towers: {
         engineering: { x: -15, z: -34, w: 12, d: 10, h: 13 },
         research: { x: 44, z: -42, w: 12, d: 10, h: 16 },
@@ -223,6 +226,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       shuttle: false,
       rotate: 0,
       base: 'cliff',
+      towerStyle: 'tree',
       towers: {
         engineering: { x: -46, z: 6, w: 12, d: 10, h: 9 },
         research: { x: -30, z: -58, w: 12, d: 10, h: 11 },
@@ -286,6 +290,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       shuttle: true,
       rotate: 180,
       base: 'neon',
+      towerStyle: 'spire',
       towers: {
         engineering: { x: -44, z: -24, w: 12, d: 10, h: 16 },
         research: { x: 112, z: 20, w: 12, d: 10, h: 18 },
@@ -340,6 +345,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       shuttle: false,
       rotate: 90,
       base: 'beach',
+      towerStyle: 'hut',
       towers: {
         engineering: { x: 58, z: 58, w: 12, d: 10, h: 8 },
         research: { x: 108, z: 44, w: 12, d: 10, h: 10 },
@@ -396,6 +402,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       shuttle: false,
       rotate: 180,
       base: 'playmat',
+      towerStyle: 'stack',
       towers: {
         engineering: { x: -44, z: 20, w: 12, d: 10, h: 7 },
         research: { x: -40, z: -24, w: 12, d: 10, h: 8 },
@@ -459,6 +466,7 @@ export const WORLD_THEMES: ThemeProfile[] = [
       shuttle: false,
       rotate: 0,
       base: 'deck',
+      towerStyle: 'pod',
       towers: {
         engineering: { x: -46, z: 0, w: 12, d: 10, h: 7 },
         research: { x: -42, z: -44, w: 12, d: 10, h: 8 },

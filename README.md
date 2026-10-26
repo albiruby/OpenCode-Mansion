@@ -34,12 +34,14 @@ with a black-water river.
   even when OpenCode isn't running.
 -  **9 animated agents per session** (1 lead + 8 squad) — CC0 Quaternius rigs
   with per-agent tinted outfits, cross-faded idle/walk clips synced to real speed.
-- 🌍 **Six world presets with real site plans** — Forest Campus, Floating
-  Kingdom, Cyber Megacity, Tropical Paradise, Toybox and Space Colony. Each
-  world rearranges the pool wing, courts, animal village, attractions and
-  district skyline, and changes the campus plate itself (cliff island, orbital
-  pedestal, playmat, neon deck). Agents, desks, live screens and physics behave
-  identically in every world.
+- 🌍 **Six worlds, six different campuses** — Forest Campus, Floating Kingdom,
+  Cyber Megacity, Tropical Paradise, Toybox and Space Colony. Each world ships
+  its own inventory of structures (`src/lib/world-content.ts`): no pool, courts
+  or village outside Forest — instead giant trees and balloon docks, holo
+  arcades and drone ports, tiki bars and lighthouses, train loops and ball
+  pits, docking bays and hydroponic domes. Fauna, staff, agent hang-outs,
+  camera presets, collision boxes and the tower skyline all follow the world,
+  while the live-data office spine stays identical.
 - 🌳 **Collision-aware movement** — A* navigation + steering physics: agents route
   through glass-room doors, walk around desks and furniture, queue through gaps,
   never clip through anything, and the campus shuttle brakes for pedestrians.
@@ -56,34 +58,43 @@ with a black-water river.
 - 🪶 **Graceful fallbacks** — the ~25 MB CC0 art pack is optional; without it every
   asset renders as procedural art, so a fresh clone looks alive in seconds.
 
-## 🌍 Six worlds, six site plans
+## 🌍 Six worlds, six completely different campuses
 
 Pick a world from the toolbar: **🌲 Forest · ☁️ Floating · 🌆 Cyber · 🏝️ Tropical · 🧸 Toybox · 🚀 Space**.
-Switching a world does not just repaint the estate — it re-plans it:
+Switching a world does not just repaint or rotate the estate — **the content
+itself is replaced**. Every world declares its own inventory in
+`src/lib/world-content.ts`: structures, collision boxes, fauna, campus staff,
+agent hang-out spots and camera presets.
 
-- the **pool + gym wing**, the **padel / soccer / basketball courts**, the
-  **animal village** and the **attractions cluster** each move to a different
-  part of the campus per world (collision, agent walk targets, visitor spots and
-  camera presets follow automatically);
-- the five **district towers** form a different skyline — a ring, a beach arc,
-  a scattered toy-block town, orbital pods or a neon wall of skyscrapers;
-- the **whole estate rotates** per world (Tropical turns 90°, Cyber and Toybox
-  turn 180°) — the office wing, boulevard and every landmark face a different
-  direction, so each map reads as a genuinely different place;
-- the **campus plate** itself changes: a sky-island cliff with floating
-  boulders, an orbital pedestal with a beacon ring, a candy playmat border or a
-  neon-edged deck. Forest and beach worlds keep the plain lawn.
-- Roads and the campus shuttle exist where they make sense (Forest, Cyber);
-  the other worlds are car-free.
+| World | What exists there (and nowhere else) |
+|---|---|
+| 🌲 **Forest Campus** | The classic estate: pool + gym, padel/soccer/basketball, animal village with duck pond, cinema, arcade, library, koi pond, observatory, helipad, fire pit, gardens, boulevard + shuttle |
+| ☁️ **Floating Kingdom** | Giant Tree HQ with treehouse, cloud terraces, balloon dock, suspension sky bridge, windmill, sky orchard, cloud bakery, crystal spires, mushroom ring — tree-towers, zero roads |
+| 🌆 **Cyber Megacity** | Holo arcade row, skate park, ramen alley, server farm with LED strips, drone port, neon club stage, billboard garden, glowing tunnel, robot pet park — neon spires, estate turned 180° |
+| 🏝️ **Tropical Paradise** | Beach volleyball, tiki bar, surf stand, fisher pier, turtle sanctuary, hammock grove, striped lighthouse, kite & fruit stand, driftwood bonfire — thatch-hut towers, estate turned 90° |
+| 🧸 **Toybox World** | Toy train loop with station, giant sandbox, marble run tower, ball pit, seesaws & swings, puppet theater, ferris wheel, block castle, rocking horses — stacked-block towers, playmat border |
+| 🚀 **Space Colony** | Docking bay with shuttle, hydroponic biodome, rover garage, cryo pod row, zero-G ring, mag-lev tube, telescope array, cargo yard, solar array — habitat pods on a pedestal |
 
-The office, desks, live screens and every agent stay put — same real sessions,
-same read-only data, same physics.
+Everything else follows the world: **fauna** (capybara/turtles on the beach,
+robot-styled cats & dogs in the megacity, pandas in orbit…), **campus staff**
+(tiki bartender, ramen chef, rover mechanic, puppeteer…), **roam spots** (agents
+actually hang out at *that world's* attractions — hammock nap, ball pit dive,
+docking shift), **camera presets** (toolbar buttons appear/disappear per world),
+the **collision world** (61–92 obstacles depending on what was built), and the
+**skyline** (block / tree / spire / hut / stack / pod towers).
+
+Only the **live-data spine** is shared, on purpose: the office wing with its
+workstations, the squad loft, the Command Center screen, Session Board, Server
+Status and Lounge TV — those carry your real sessions and must exist everywhere.
+The whole estate also rotates per world (Tropical 90°, Cyber and Toybox 180°),
+and the campus plate itself changes (sky-island cliff, orbital pedestal, candy
+playmat, neon deck, beach collar).
 
 | | | |
 |---|---|---|
-| **🌲 Forest Campus** — jungle belt, river, boulevard shuttle, pool east. | **☁️ Floating Kingdom** — sky island, pool west, courts north, boulders adrift. | **🌆 Cyber Megacity** — neon tower wall, pool north-west, courts south-west, estate turned 180°. |
+| **🌲 Forest Campus** — jungle belt, river, boulevard shuttle, classic estate. | **☁️ Floating Kingdom** — giant tree, windmill, sky bridge, balloon dock, tree-towers. | **🌆 Cyber Megacity** — holo arcade, drone port, club stage, server farm, neon spires. |
 | ![Forest world](docs/gallery/world-forest.png) | ![Floating world](docs/gallery/world-floating.png) | ![Cyberpunk world](docs/gallery/world-cyberpunk.png) |
-| **🏝️ Tropical Paradise** — beach ring, pool east, village east, estate turned 90°. | **🧸 Toybox World** — playmat border, pool north-west, courts south, estate turned 180°. | **🚀 Space Colony** — orbital pedestal, pool east, village west. |
+| **🏝️ Tropical Paradise** — lighthouse, tiki bar, pier, turtle sanctuary, hut towers. | **🧸 Toybox World** — train loop, ferris wheel, ball pit, puppet theater, block towers. | **🚀 Space Colony** — docking bay, biodome, cryo row, cargo yard, habitat pods. |
 | ![Tropical world](docs/gallery/world-tropical.png) | ![Toybox world](docs/gallery/world-toybox.png) | ![Space world](docs/gallery/world-space.png) |
 
 ## 📸 Gallery

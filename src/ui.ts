@@ -1,7 +1,7 @@
 import { AGENTS, AGENT_IDS } from './data/agents';
 import { appState, bus, logStore, sessionStore } from './store/store';
 import { connectBridge, disconnectBridge, DEFAULT_BRIDGE_URL, requestSessionDiff, requestSessionHistory } from './lib/bridge';
-import { rebuildForTheme, setCameraPreset, setSceneActive, setWorldTheme, getWorldThemeId } from './lib/scene';
+import { rebuildForTheme, setCameraPreset, setSceneActive, setWorldTheme, getWorldThemeId, availableCameraPresets } from './lib/scene';
 import { WORLD_THEMES, type WorldThemeId } from './lib/themes';
 import { coffeeBreak } from './sim/engine';
 import { isAudioEnabled, setAudioEnabled } from './lib/audio';
@@ -1069,16 +1069,64 @@ function initWorldSelector(): void {
     btn.dataset['world'] = theme.id;
     btn.title = theme.label;
     btn.textContent = `${theme.emoji} ${theme.label.split(' ')[0]}`;
-    btn.addEventListener('click', () => setWorldTheme(theme.id as WorldThemeId));
+    btn.addEventListener('click', () => {
+      setWorldTheme(theme.id as WorldThemeId);
+      refreshCameraButtons();
+    });
     box.appendChild(btn);
   });
   refresh();
+}
+
+/** Pretty labels for world-specific camera presets. */
+const PRESET_LABELS: Record<string, string> = {
+  terrace: 'Terrace',
+  balloon: 'Balloons',
+  orchard: 'Orchard',
+  arcade: 'Arcade',
+  stage: 'Stage',
+  drones: 'Drones',
+  volley: 'Volley',
+  tiki: 'Tiki Bar',
+  pier: 'Pier',
+  lighthouse: 'Lighthouse',
+  train: 'Train',
+  ballpit: 'Ball Pit',
+  castle: 'Castle',
+  wheel: 'Ferris Wheel',
+  bay: 'Docking Bay',
+  biodome: 'Biodome',
+  rover: 'Rover',
+  telescope: 'Telescope',
+};
+
+/** Show only the camera presets that exist in the active world. */
+export function refreshCameraButtons(): void {
+  const avail = new Set(availableCameraPresets());
+  document.querySelectorAll<HTMLButtonElement>('[data-cam]').forEach((btn) => {
+    const key = btn.dataset['cam'] ?? '';
+    btn.hidden = !avail.has(key);
+    if (avail.has(key) && !btn.title) btn.title = PRESET_LABELS[key] ?? key;
+  });
+  const anchor = document.querySelector('[data-cam="top"]');
+  for (const key of avail) {
+    if (document.querySelector(`[data-cam="${key}"]`)) continue;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset['cam'] = key;
+    btn.className =
+      'px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition';
+    btn.textContent = PRESET_LABELS[key] ?? key.toUpperCase();
+    btn.addEventListener('click', () => setCameraPreset(key));
+    anchor?.parentElement?.appendChild(btn);
+  }
 }
 
 function initStageControls(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-cam]').forEach((btn) => {
     btn.addEventListener('click', () => setCameraPreset(btn.dataset['cam'] ?? 'iso'));
   });
+  refreshCameraButtons();
   initWorldSelector();
   $('coffeeBtn')?.addEventListener('click', () => coffeeBreak());
   const follow = $<HTMLInputElement>('followToggle');

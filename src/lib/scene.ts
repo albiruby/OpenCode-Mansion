@@ -22,6 +22,7 @@ import {
 } from './physics';
 import { buildSurroundings, updateSurroundings, resetSurroundings } from './surroundings';
 import { setActiveTheme, activeTheme, type WorldThemeId } from './themes';
+import { worldContent, type ContentApi } from './world-content';
 import type { AgentDef, AgentId, SessionStatus, SessionSummary } from '../types';
 
 /* --------------------------------------------------------------------------
@@ -138,36 +139,65 @@ const BASE_SPOTS: Record<string, { x: number; z: number; rot: number }[]> = {
 };
 
 /**
- * Live roam targets: the base layout shifted by the active world's site plan,
- * so agents walk to where the pool / courts actually are in every world.
+ * Live roam targets: the base office layout plus whatever this world offers.
+ * Forest keeps the classic pool/courts keys; other worlds only offer their own
+ * attractions from world-content.ts, so agents never walk to missing places.
  */
 const SPOTS: Record<string, { x: number; z: number; rot: number }[]> = {};
+let roamChoices: SpotKey[] = ['coffee', 'tv', 'meeting', 'server', 'whiteboard'];
+let deskChoices: SpotKey[] = ['coffee', 'tv', 'meeting', 'server', 'whiteboard'];
+
+const OFFICE_SPOT_KEYS = ['coffee', 'tv', 'whiteboard', 'meeting', 'server'];
+const FOREST_SPOT_KEYS = ['pool', 'padel', 'soccer', 'gym'];
 
 function rebuildRoamTargets(): void {
-  const L = activeTheme().layout;
-  const offsets: Record<string, [number, number]> = {
-    pool: L.pool,
-    gym: L.pool,
-    padel: L.sports,
-    soccer: L.sports,
-  };
-  for (const key of Object.keys(BASE_SPOTS)) {
-    const off = offsets[key];
-    SPOTS[key] = off
-      ? BASE_SPOTS[key]!.map((s) => ({ x: s.x + off[0], z: s.z + off[1], rot: s.rot }))
-      : BASE_SPOTS[key]!.map((s) => ({ ...s }));
+  const theme = activeTheme();
+  const L = theme.layout;
+  const forest = theme.id === 'forest';
+  const content = worldContent(theme.id);
+
+  for (const key of Object.keys(SPOTS)) delete SPOTS[key];
+
+  for (const key of OFFICE_SPOT_KEYS) {
+    SPOTS[key] = BASE_SPOTS[key]!.map((s) => ({ ...s }));
   }
-  // Animal village zones follow the village; the loose south/west/north herds
-  // stay on the open lawns.
-  ANIMAL_SPOTS.village = BASE_ANIMAL_SPOTS.village.map((s) => ({
-    x: s.x + L.village[0],
-    z: s.z + L.village[1],
-  }));
-  // Visitors gather around the pool and the village wherever they sit.
+  if (forest) {
+    const offsets: Record<string, [number, number]> = {
+      pool: L.pool,
+      gym: L.pool,
+      padel: L.sports,
+      soccer: L.sports,
+    };
+    for (const key of FOREST_SPOT_KEYS) {
+      const off = offsets[key]!;
+      SPOTS[key] = BASE_SPOTS[key]!.map((s) => ({ x: s.x + off[0], z: s.z + off[1], rot: s.rot }));
+    }
+  }
+  for (const [key, list] of Object.entries(content.roam)) {
+    SPOTS[key] = list.map((s) => ({ ...s }));
+  }
+
+  const allKeys = Object.keys(SPOTS) as SpotKey[];
+  roamChoices = allKeys.length > 0 ? allKeys : ['coffee'];
+  deskChoices = allKeys.filter((k) => k !== 'desk');
+
+  // The animal village only exists in the forest world.
+  ANIMAL_SPOTS.village = forest
+    ? BASE_ANIMAL_SPOTS.village.map((s) => ({ x: s.x + L.village[0], z: s.z + L.village[1] }))
+    : BASE_ANIMAL_SPOTS.village.map((s) => ({ ...s }));
+
+  // Visitors gather around the forest pool/village; other worlds keep the
+  // open-lawn spots near the office.
   CROWD_SPOTS.length = 0;
-  for (const s of BASE_CROWD_SPOTS) {
-    const off = s.z > 42 ? L.village : s.x > 58 ? L.pool : null;
-    CROWD_SPOTS.push(off ? { x: s.x + off[0], z: s.z + off[1], rot: s.rot } : { ...s });
+  if (forest) {
+    for (const s of BASE_CROWD_SPOTS) {
+      const off = s.z > 42 ? L.village : s.x > 58 ? L.pool : null;
+      CROWD_SPOTS.push(off ? { x: s.x + off[0], z: s.z + off[1], rot: s.rot } : { ...s });
+    }
+  } else {
+    for (const s of BASE_CROWD_SPOTS) {
+      if (s.x <= 58 && s.z <= 42) CROWD_SPOTS.push({ ...s });
+    }
   }
   rebuildPresets();
 }
@@ -182,7 +212,23 @@ type SpotKey =
   | 'pool'
   | 'padel'
   | 'soccer'
-  | 'gym';
+  | 'gym'
+  /** Per-world attraction spots (see world-content.ts). */
+  | 'terrace'
+  | 'balloon'
+  | 'orchard'
+  | 'arcade'
+  | 'ramen'
+  | 'stage'
+  | 'hammock'
+  | 'tiki'
+  | 'volley'
+  | 'ballpit'
+  | 'sandbox'
+  | 'train'
+  | 'biodome'
+  | 'rover'
+  | 'bay';
 
 interface Pt {
   x: number;
@@ -210,7 +256,10 @@ const collisionWorld = new CollisionWorld(
 function registerCollisionGeometry(): void {
   const w = collisionWorld;
   w.clear();
-  const L = activeTheme().layout;
+  const theme = activeTheme();
+  const L = theme.layout;
+  const forest = theme.id === 'forest';
+  const content = worldContent(theme.id);
   const [px, pz] = L.pool;
   const [ax, az] = L.attractions;
   const [vx, vz] = L.village;
@@ -277,21 +326,23 @@ function registerCollisionGeometry(): void {
   w.addBox(-21, 12.2, 1.15, 1.15); // pantry armchair
   w.addBox(-19.2, 6.4, 1.2, 0.95); // coffee cart
 
-  // Sports wing (pool + gym), wherever the world places it.
-  w.addBox(80 + px, 16 + pz, 22, 16); // pool water
-  for (const x of [72, 78, 84, 90]) w.addBox(x + px, 29.5 + pz, 1.9, 0.75); // loungers
-  for (const [x, z] of [
-    [66, 4],
-    [94, 4],
-    [66, 33],
-    [94, 33],
-  ] as [number, number][]) {
-    w.addBox(x + px, z + pz, 0.7, 0.7); // palms
+  // Sports wing (pool + gym) — forest only; other worlds have their own stuff.
+  if (forest) {
+    w.addBox(80 + px, 16 + pz, 22, 16); // pool water
+    for (const x of [72, 78, 84, 90]) w.addBox(x + px, 29.5 + pz, 1.9, 0.75); // loungers
+    for (const [x, z] of [
+      [66, 4],
+      [94, 4],
+      [66, 33],
+      [94, 33],
+    ] as [number, number][]) {
+      w.addBox(x + px, z + pz, 0.7, 0.7); // palms
+    }
+    w.addBox(43 + px, 42 + pz, 2.6, 0.8); // gym bench
+    w.addBox(53.4 + px, 42 + pz, 2.8, 0.6); // squat rack
+    w.addBox(55 + px, 35 + pz, 0.8, 0.8); // punching bag
+    w.addBox(48 + px, 46 + pz, 8, 0.4); // gym mirror wall
   }
-  w.addBox(43 + px, 42 + pz, 2.6, 0.8); // gym bench
-  w.addBox(53.4 + px, 42 + pz, 2.8, 0.6); // squat rack
-  w.addBox(55 + px, 35 + pz, 0.8, 0.8); // punching bag
-  w.addBox(48 + px, 46 + pz, 8, 0.4); // gym mirror wall
 
   // Command / district buildings.
   const T = L.towers;
@@ -301,12 +352,20 @@ function registerCollisionGeometry(): void {
   w.addBox(40, 14, 10.6, 0.7); // session board
   w.addBox(16.4, -14.55, 5.5, 0.4); // server status screen
 
-  // Attractions close to walkable routes.
-  w.addBox(26 + ax, -36 + az, 9, 7); // koi pond
-  w.addBox(0 + ax, -48 + az, 7, 7); // observatory
-  w.addBox(16 + ax, 42 + az, 3.2, 3.2); // fire pit
-  w.addBox(62 + ax, 34 + az, 3.2, 2.2); // food truck / cart
-  w.addBox(64 + ax, 29 + az, 4, 1.2); // pool bar
+  // Attractions close to walkable routes (forest) or this world's own items.
+  if (forest) {
+    w.addBox(26 + ax, -36 + az, 9, 7); // koi pond
+    w.addBox(0 + ax, -48 + az, 7, 7); // observatory
+    w.addBox(16 + ax, 42 + az, 3.2, 3.2); // fire pit
+    w.addBox(62 + ax, 34 + az, 3.2, 2.2); // food truck / cart
+    w.addBox(64 + ax, 29 + az, 4, 1.2); // pool bar
+  } else {
+    for (const item of content.items) {
+      for (const c of item.colliders ?? []) {
+        w.addBox(c[0], c[1], c[2], c[3], c[4]);
+      }
+    }
+  }
 
   // Boulevard bollards line both sidewalks.
   if (L.roads) {
@@ -315,13 +374,15 @@ function registerCollisionGeometry(): void {
     }
   }
 
-  // Animal village.
-  w.addBox(94 + vx, 55.5 + vz, 6.2, 4.4);
-  w.addBox(101.5 + vx, 64.5 + vz, 5.0, 4.0, -Math.PI / 2);
-  w.addBox(89.5 + vx, 69.8 + vz, 5.2, 4.0);
-  w.addBox(77.5 + vx, 68.3 + vz, 6.4, 6.4); // duck pond
-  w.addBox(69.8 + vx, 57.3 + vz, 2.4, 1.6); // hay bales
-  w.addBox(71.3 + vx, 64.9 + vz, 2.2, 2.2); // vegetable patch
+  // Animal village — forest only.
+  if (forest) {
+    w.addBox(94 + vx, 55.5 + vz, 6.2, 4.4);
+    w.addBox(101.5 + vx, 64.5 + vz, 5.0, 4.0, -Math.PI / 2);
+    w.addBox(89.5 + vx, 69.8 + vz, 5.2, 4.0);
+    w.addBox(77.5 + vx, 68.3 + vz, 6.4, 6.4); // duck pond
+    w.addBox(69.8 + vx, 57.3 + vz, 2.4, 1.6); // hay bales
+    w.addBox(71.3 + vx, 64.9 + vz, 2.2, 2.2); // vegetable patch
+  }
 
   w.build(AGENT_RADIUS);
 }
@@ -445,28 +506,13 @@ function initRoamFor(ag: AgentDef): void {
 
 function chooseNextSpot(current: SpotKey): SpotKey {
   const r = Math.random();
+  const pick = (list: SpotKey[]): SpotKey => list[Math.floor(Math.random() * list.length)] ?? 'desk';
   if (current === 'desk') {
-    if (r < 0.14) return 'coffee';
-    if (r < 0.28) return 'tv';
-    if (r < 0.38) return 'meeting';
-    if (r < 0.46) return 'server';
-    if (r < 0.54) return 'whiteboard';
-    if (r < 0.66) return 'pool';
-    if (r < 0.76) return 'padel';
-    if (r < 0.86) return 'soccer';
-    if (r < 0.93) return 'gym';
-    return 'desk';
+    if (r < 0.12) return 'desk';
+    return pick(deskChoices);
   }
   if (r < 0.34) return 'desk';
-  if (r < 0.48) return 'coffee';
-  if (r < 0.6) return 'tv';
-  if (r < 0.7) return 'meeting';
-  if (r < 0.78) return 'server';
-  if (r < 0.86) return 'whiteboard';
-  if (r < 0.9) return 'pool';
-  if (r < 0.94) return 'soccer';
-  if (r < 0.97) return 'gym';
-  return 'padel';
+  return pick(roamChoices);
 }
 
 function moodForSpot(
@@ -492,6 +538,36 @@ function moodForSpot(
       return { state: 'IDLE', bubble: 'Mini soccer' };
     case 'gym':
       return { state: 'IDLE', bubble: 'Gym session' };
+    case 'terrace':
+      return { state: 'IDLE', bubble: '☁️ Cloudside break' };
+    case 'balloon':
+      return { state: 'IDLE', bubble: 'Balloons away' };
+    case 'orchard':
+      return { state: 'IDLE', bubble: 'Picking sky fruit' };
+    case 'arcade':
+      return { state: 'IDLE', bubble: 'Holo high-score' };
+    case 'ramen':
+      return { state: 'IDLE', bubble: 'Slurp break' };
+    case 'stage':
+      return { state: 'PLANNING', bubble: 'Sound check' };
+    case 'hammock':
+      return { state: 'IDLE', bubble: 'Hammock nap' };
+    case 'tiki':
+      return { state: 'COFFEE', bubble: '🏝️ Tiki time' };
+    case 'volley':
+      return { state: 'IDLE', bubble: 'Serving!' };
+    case 'ballpit':
+      return { state: 'IDLE', bubble: 'Ball pit dive' };
+    case 'sandbox':
+      return { state: 'IDLE', bubble: 'Sandcastle duty' };
+    case 'train':
+      return { state: 'IDLE', bubble: '🚂 All aboard' };
+    case 'biodome':
+      return { state: 'TESTING', bubble: 'Watering seedlings' };
+    case 'rover':
+      return { state: 'TESTING', bubble: 'Rover diagnostics' };
+    case 'bay':
+      return { state: 'PLANNING', bubble: 'Docking shift' };
     default:
       return { state: 'TYPING', bubble: ag.defaultBubble };
   }
@@ -692,7 +768,9 @@ function worldPoint(x: number, z: number): { x: number; z: number } {
 }
 
 function rebuildPresets(): void {
-  const L = activeTheme().layout;
+  const theme = activeTheme();
+  const L = theme.layout;
+  const content = worldContent(theme.id);
   const shift = (
     p: { pos: [number, number, number]; look: [number, number, number] },
     [dx, dz]: [number, number],
@@ -707,17 +785,32 @@ function rebuildPresets(): void {
     const b = worldPoint(p.look[0], p.look[2]);
     return { pos: [a.x, p.pos[1], a.z], look: [b.x, p.look[1], b.z] };
   };
-  for (const key of Object.keys(BASE_PRESETS)) PRESETS[key] = rotate(BASE_PRESETS[key]!);
-  PRESETS['pool'] = rotate(shift(BASE_PRESETS['pool']!, L.pool));
-  PRESETS['gym'] = rotate(shift(BASE_PRESETS['gym']!, L.pool));
-  PRESETS['padel'] = rotate(shift(BASE_PRESETS['padel']!, L.sports));
-  PRESETS['soccer'] = rotate(shift(BASE_PRESETS['soccer']!, L.sports));
-  PRESETS['basket'] = rotate(shift(BASE_PRESETS['basket']!, L.sports));
-  PRESETS['cinema'] = rotate(shift(BASE_PRESETS['cinema']!, L.attractions));
-  PRESETS['tennis'] = rotate(shift(BASE_PRESETS['tennis']!, L.attractions));
-  PRESETS['village'] = rotate(shift(BASE_PRESETS['village']!, L.village));
+
+  for (const key of Object.keys(PRESETS)) delete PRESETS[key];
+  // Base presets only where this world actually has that facility.
+  for (const key of content.presets) {
+    if (BASE_PRESETS[key]) PRESETS[key] = rotate(BASE_PRESETS[key]!);
+  }
+  if (content.presets.includes('pool')) PRESETS['pool'] = rotate(shift(BASE_PRESETS['pool']!, L.pool));
+  if (content.presets.includes('gym')) PRESETS['gym'] = rotate(shift(BASE_PRESETS['gym']!, L.pool));
+  if (content.presets.includes('padel')) PRESETS['padel'] = rotate(shift(BASE_PRESETS['padel']!, L.sports));
+  if (content.presets.includes('soccer')) PRESETS['soccer'] = rotate(shift(BASE_PRESETS['soccer']!, L.sports));
+  if (content.presets.includes('basketball')) PRESETS['basket'] = rotate(shift(BASE_PRESETS['basket']!, L.sports));
+  if (PRESETS['basket']) PRESETS['basketball'] = PRESETS['basket']; // toolbar uses the long name
+  if (content.presets.includes('cinema')) PRESETS['cinema'] = rotate(shift(BASE_PRESETS['cinema']!, L.attractions));
+  if (content.presets.includes('tennis')) PRESETS['tennis'] = rotate(shift(BASE_PRESETS['tennis']!, L.attractions));
+  if (content.presets.includes('village')) PRESETS['village'] = rotate(shift(BASE_PRESETS['village']!, L.village));
   const c = L.towers.command;
   PRESETS['command'] = rotate({ pos: [c.x, 14, c.z + 20], look: [c.x, 6, c.z + 4] });
+  // World-specific facility cameras (positions declared with the content).
+  for (const [key, spot] of Object.entries(content.presetSpots)) {
+    PRESETS[key] = rotate(spot);
+  }
+}
+
+/** Camera presets available in the active world (for the toolbar UI). */
+export function availableCameraPresets(): string[] {
+  return Object.keys(PRESETS);
 }
 
 export function setCameraPreset(name: string): void {
@@ -3923,10 +4016,18 @@ const staffGroups: THREE.Group[] = [];
 
 function buildStaff(root: THREE.Group, isDark: boolean): void {
   staffGroups.length = 0;
-  const L = activeTheme().layout;
-  STAFF_DEFS.forEach((def, i) => {
+  const theme = activeTheme();
+  const L = theme.layout;
+  const content = worldContent(theme.id);
+  // Forest keeps the classic 11; every other world brings its own crew.
+  const defs: { name: string; x: number; z: number; rot: number; color: number; zone: 'pool' | 'sports' | 'attractions' | 'fixed' }[] =
+    content.staff.length > 0
+      ? content.staff.map((s) => ({ name: s.name, x: s.x, z: s.z, rot: s.rot, color: s.color, zone: 'fixed' as const }))
+      : STAFF_DEFS;
+  defs.forEach((def, i) => {
     const base = AGENTS[AGENT_IDS[(i + 3) % AGENT_IDS.length] ?? 'max'];
-    const off = def.zone === 'pool' ? L.pool : def.zone === 'sports' ? L.sports : L.attractions;
+    const off =
+      def.zone === 'pool' ? L.pool : def.zone === 'sports' ? L.sports : def.zone === 'attractions' ? L.attractions : ([0, 0] as [number, number]);
     const sx = def.x + off[0];
     const sz = def.z + off[1];
     const look: AgentDef = {
@@ -3976,11 +4077,182 @@ function animateStaff(dt: number, time: number): void {
 /* --------------------------------------------------------------------------
    District buildings, command center, task board, roads
    -------------------------------------------------------------------------- */
-function buildTowerBlock(
+type TowerStyle = 'block' | 'spire' | 'hut' | 'stack' | 'pod' | 'tree';
+
+/**
+ * Non-block district towers. The COMMAND CENTER always stays 'block' — its big
+ * face carries the live session screen. Everything else gets a per-world
+ * silhouette so no two worlds share the same skyline.
+ */
+function buildStyledTower(
   root: THREE.Group,
   isDark: boolean,
   opts: { x: number; z: number; w: number; d: number; h: number; color: number; label: string },
+  style: TowerStyle,
 ): void {
+  const { x, z, w, d, h, color, label } = opts;
+  const body = new THREE.MeshStandardMaterial({ color, roughness: 0.65 });
+  const dark = new THREE.MeshStandardMaterial({ color: isDark ? 0x111827 : 0x1f2937, roughness: 0.8 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0xbfdbfe,
+    emissive: 0x93c5fd,
+    emissiveIntensity: 0.55,
+    roughness: 0.2,
+  });
+  const add = (mesh: THREE.Object3D, detail: string): THREE.Object3D => {
+    tagInspect(mesh, label, 'District Building', detail);
+    root.add(mesh);
+    return mesh;
+  };
+  const boxAt = (bw: number, bh: number, bd: number, bx: number, by: number, bz: number, m: THREE.Material, ry = 0): THREE.Mesh => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), m);
+    mesh.position.set(bx, by, bz);
+    mesh.rotation.y = ry;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  };
+  const cylAt = (rt: number, rb: number, hh: number, m: THREE.Material, seg = 14): THREE.Mesh => {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, hh, seg), m);
+    mesh.position.set(x, hh / 2, z);
+    mesh.castShadow = true;
+    return mesh;
+  };
+
+  if (style === 'spire') {
+    // Neon megacorp spire: stacked taper + antenna + glowing trim.
+    add(boxAt(w, h * 0.72, d, x, (h * 0.72) / 2, z, body), `${label} · neon megacorp tower`);
+    add(boxAt(w * 0.6, h * 0.2, d * 0.6, x, h * 0.72 + h * 0.1, z, body), '');
+    add(boxAt(w * 0.3, h * 0.1, d * 0.3, x, h * 0.72 + h * 0.25, z, body), '');
+    const spire = new THREE.Mesh(new THREE.ConeGeometry(w * 0.16, h * 0.3, 6), body);
+    spire.position.set(x, h * 0.72 + h * 0.35 + h * 0.15, z);
+    root.add(spire);
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
+    for (const dx of [-w / 2 - 0.1, w / 2 + 0.1]) {
+      root.add(boxAt(0.2, h * 0.72, 0.2, x + dx, h * 0.36, z, glowMat));
+    }
+    for (let f = 0; f < 4; f++) {
+      root.add(boxAt(w * 0.7, 0.5, 0.1, x, 2.5 + f * (h * 0.16), z + d / 2 + 0.06, glass));
+    }
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+    beacon.position.set(x, h * 1.07 + h * 0.15 + 0.5, z);
+    root.add(beacon);
+    return;
+  }
+
+  if (style === 'hut') {
+    // Stilted beach pavilion with a thatch roof.
+    add(boxAt(w, h * 0.5, d, x, 0.9 + (h * 0.5) / 2, z, body), `${label} · tiki pavilion`);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+      const stilt = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 1.2, 8), dark);
+      stilt.position.set(x + sx * (w / 2 - 0.6), 0.6, z + sz * (d / 2 - 0.6));
+      root.add(stilt);
+    }
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.78, h * 0.42, 8), new THREE.MeshStandardMaterial({ color: 0xd6b46a, roughness: 1 }));
+    roof.position.set(x, 0.9 + h * 0.5 + h * 0.21, z);
+    roof.castShadow = true;
+    root.add(roof);
+    root.add(boxAt(w * 0.4, 1.8, 0.15, x, 0.9 + 0.9, z + d / 2 + 0.05, glass));
+    return;
+  }
+
+  if (style === 'stack') {
+    // Giant toy-block tower: three shrinking blocks, round windows, flag.
+    const cols = [color, 0xf8fafc, 0xfde68a];
+    let y = 0;
+    for (let i = 0; i < 3; i++) {
+      const s = 1 - i * 0.22;
+      const bh = (h * 0.34);
+      const m = i === 0 ? body : new THREE.MeshStandardMaterial({ color: cols[i]!, roughness: 0.6 });
+      add(boxAt(w * s, bh, d * s, x, y + bh / 2, z, m, i * 0.14), i === 0 ? `${label} · stacked toy blocks` : '');
+      // Round portholes.
+      for (let px = -1; px <= 1; px++) {
+        const hole = new THREE.Mesh(new THREE.CircleGeometry(0.55, 14), glass);
+        hole.position.set(x + px * w * 0.26, y + bh / 2, z + (d * s) / 2 + 0.07);
+        root.add(hole);
+      }
+      y += bh + 0.3;
+    }
+    const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3, 6), dark);
+    flagPole.position.set(x, y + 1.5, z);
+    root.add(flagPole);
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.1), new THREE.MeshStandardMaterial({ color: 0xef4444, side: THREE.DoubleSide }));
+    flag.position.set(x + 0.95, y + 2.5, z);
+    root.add(flag);
+    return;
+  }
+
+  if (style === 'pod') {
+    // Orbital habitat pod: cylinder + glass dome + service ring.
+    const r = Math.max(w, d) / 2;
+    add(cylAt(r, r * 1.05, h * 0.78, body), `${label} · orbital habitat pod`);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(r * 0.98, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({
+      color: 0xa5f3fc,
+      transparent: true,
+      opacity: 0.35,
+      roughness: 0.1,
+      metalness: 0.2,
+      side: THREE.DoubleSide,
+    }));
+    dome.position.set(x, h * 0.78, z);
+    root.add(dome);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 1.12, 0.3, 6, 30), new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.7, roughness: 0.35 }));
+    ring.position.set(x, h * 0.4, z);
+    ring.rotation.x = Math.PI / 2;
+    root.add(ring);
+    for (let i = 0; i < 4; i++) {
+      const porthole = new THREE.Mesh(new THREE.CircleGeometry(0.7, 16), glass);
+      const a = (i / 4) * Math.PI * 2;
+      porthole.position.set(x + Math.cos(a) * (r + 0.06), h * 0.5, z + Math.sin(a) * (r + 0.06));
+      porthole.lookAt(x + Math.cos(a) * (r + 6), h * 0.5, z + Math.sin(a) * (r + 6));
+      root.add(porthole);
+    }
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
+    beacon.position.set(x, h * 0.78 + r * 0.98 + 0.4, z);
+    root.add(beacon);
+    return;
+  }
+
+  // style === 'tree' — the floating kingdom's giant-tree towers.
+  const trunk = cylAt(w * 0.34, w * 0.5, h * 0.7, new THREE.MeshStandardMaterial({ color: 0x7c4a1f, roughness: 1 }), 12);
+  tagInspect(trunk, label, 'District Building', `${label} · giant tree platform`);
+  trunk.castShadow = true;
+  const canopy = new THREE.Mesh(new THREE.SphereGeometry(Math.max(w, d) * 0.66, 16, 12), new THREE.MeshStandardMaterial({ color: 0x7ade9b, roughness: 0.9 }));
+  canopy.position.set(x, h * 0.7 + Math.max(w, d) * 0.3, z);
+  canopy.scale.y = 0.72;
+  canopy.castShadow = true;
+  root.add(canopy);
+  const canopy2 = new THREE.Mesh(new THREE.SphereGeometry(Math.max(w, d) * 0.44, 14, 10), new THREE.MeshStandardMaterial({ color: isDark ? 0x34d399 : 0xa7f3d0, roughness: 0.9 }));
+  canopy2.position.set(x - w * 0.34, h * 0.62, z + d * 0.28);
+  root.add(canopy2);
+  // Treehouse platform + glowing window.
+  const deck = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.5, w * 0.5, 0.5, 12), new THREE.MeshStandardMaterial({ color: 0xcdb79e, roughness: 0.85 }));
+  deck.position.set(x, h * 0.56, z);
+  root.add(deck);
+  const hut = boxAt(w * 0.5, h * 0.22, d * 0.5, x, h * 0.56 + h * 0.11 + 0.25, z, new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.9 }));
+  root.add(hut);
+  root.add(boxAt(w * 0.26, h * 0.1, 0.1, x, h * 0.56 + h * 0.12, z + d * 0.26, glass));
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfde68a }));
+  lantern.position.set(x + w * 0.4, h * 0.44, z - d * 0.3);
+  root.add(lantern);
+}
+
+function buildTowerBlock(
+  root: THREE.Group,
+  isDark: boolean,
+  opts: {
+    x: number;
+    z: number;
+    w: number;
+    d: number;
+    h: number;
+    color: number;
+    label: string;
+    /** Per-world tower silhouette: block (default), spire, hut, stack, pod, tree. */
+    style?: TowerStyle;
+  },
+): void {
+  const style = opts.style ?? 'block';
   const bodyMat = new THREE.MeshStandardMaterial({ color: opts.color, roughness: 0.65 });
   const floorMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x18181b : 0xe2e8f0, roughness: 0.8 });
   const windowMat = new THREE.MeshStandardMaterial({
@@ -4002,6 +4274,12 @@ function buildTowerBlock(
   plaza.position.set(opts.x, 0.018, opts.z);
   plaza.receiveShadow = true;
   root.add(plaza);
+
+  if (style !== 'block') {
+    buildStyledTower(root, isDark, opts, style);
+    buildRoomLabel(root, opts.x, 3.4, opts.z + opts.d / 2 + 0.15, opts.label, 3.0);
+    return;
+  }
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(opts.w, opts.h, opts.d), bodyMat);
   body.position.set(opts.x, opts.h / 2, opts.z);
@@ -4184,10 +4462,10 @@ function buildDistricts(root: THREE.Group, isDark: boolean): void {
   const L = P.layout;
   buildCommandCenter(root, isDark);
   const T = L.towers;
-  buildTowerBlock(root, isDark, { ...T.engineering, color: P.towers[0], label: 'ENGINEERING' });
-  buildTowerBlock(root, isDark, { ...T.research, color: P.towers[1], label: 'RESEARCH' });
-  buildTowerBlock(root, isDark, { ...T.qa, color: P.towers[2], label: 'QA LAB' });
-  buildTowerBlock(root, isDark, { ...T.infrastructure, color: P.towers[3], label: 'INFRASTRUCTURE' });
+  buildTowerBlock(root, isDark, { ...T.engineering, color: P.towers[0], label: 'ENGINEERING', style: L.towerStyle });
+  buildTowerBlock(root, isDark, { ...T.research, color: P.towers[1], label: 'RESEARCH', style: L.towerStyle });
+  buildTowerBlock(root, isDark, { ...T.qa, color: P.towers[2], label: 'QA LAB', style: L.towerStyle });
+  buildTowerBlock(root, isDark, { ...T.infrastructure, color: P.towers[3], label: 'INFRASTRUCTURE', style: L.towerStyle });
   buildTaskBoard(root, isDark);
   buildServerStatusScreen(root);
 }
@@ -4934,6 +5212,8 @@ function styleAnimal(group: THREE.Group): void {
 
 function buildAnimals(root: THREE.Group): void {
   animals.length = 0;
+  const forest = activeTheme().id === 'forest';
+  const content = worldContent(activeTheme().id);
   const spawns: { kind: AnimalKind; zone: AnimalZone; x: number; z: number; static?: boolean; y?: number }[] = [
     { kind: 'cat', zone: 'south', x: 22, z: 48 },
     { kind: 'cat', zone: 'west', x: -38, z: 26 },
@@ -4968,7 +5248,22 @@ function buildAnimals(root: THREE.Group): void {
     { kind: 'dog', zone: 'village', x: 86, z: 55 },
   ];
 
-  spawns.forEach((spawn) => {
+  // Per-world fauna: forest spawns everything where it belongs; other worlds
+  // only spawn their animals, re-homing pool/village/pond critters onto the
+  // open lawns where those facilities don't exist.
+  const openZones: ('south' | 'west' | 'north')[] = ['south', 'west', 'north'];
+  const filtered = spawns
+    .filter((spawn) => content.fauna.includes(spawn.kind))
+    .map((spawn, i) => {
+      if (forest || spawn.static) return spawn;
+      if (spawn.zone === 'south' || spawn.zone === 'west' || spawn.zone === 'north') return spawn;
+      const zone = openZones[i % openZones.length]!;
+      const list = ANIMAL_SPOTS[zone];
+      const spot = list[(i * 3) % list.length]!;
+      return { ...spawn, zone, x: spot.x + ((i % 5) - 2) * 1.5, z: spot.z + ((i % 3) - 1) * 1.5 };
+    });
+
+  filtered.forEach((spawn) => {
     const model = buildAnimalModel(spawn.kind);
     const scale =
       spawn.kind === 'cat'
@@ -5864,6 +6159,12 @@ function buildContent(isDark: boolean): void {
   contentRoot.add(worldRoot);
   const root = worldRoot;
   const L = activeTheme().layout;
+  const content = worldContent(activeTheme().id);
+  const forest = activeTheme().id === 'forest';
+  const contentApi: ContentApi = {
+    tag: (object, label, kind, detail, preset) => tagInspect(object, label, kind, detail, preset),
+    label: (group, x, y, z, text, scale) => buildRoomLabel(group, x, y, z, text, scale),
+  };
 
   buildSurroundings(root, isDark);
   buildFloorAndWalls(root, isDark);
@@ -5877,25 +6178,36 @@ function buildContent(isDark: boolean): void {
   buildExtras(root, isDark);
   buildRooms(root, isDark);
   buildRoads(root, isDark);
-  buildCampusLandscaping(root, isDark);
-  buildSportsWing(root, isDark);
+  if (forest) buildCampusLandscaping(root, isDark);
+
+  if (forest) {
+    buildSportsWing(root, isDark);
+  } else {
+    // The squad loft and atrium stay (agents sit there); the forest-only
+    // facilities are replaced by this world's own inventory.
+    buildAtrium(root, isDark);
+    buildCrowdLoft(root, isDark);
+    for (const item of content.items) item.build(root, isDark, contentApi);
+  }
   buildDistricts(root, isDark);
 
-  const attractions = new THREE.Group();
-  attractions.position.set(L.attractions[0], 0, L.attractions[1]);
-  root.add(attractions);
-  buildAttractions(attractions, isDark);
+  if (forest) {
+    const attractions = new THREE.Group();
+    attractions.position.set(L.attractions[0], 0, L.attractions[1]);
+    root.add(attractions);
+    buildAttractions(attractions, isDark);
 
-  const village = new THREE.Group();
-  village.position.set(L.village[0], 0, L.village[1]);
-  root.add(village);
-  buildAnimalVillage(village, isDark);
+    const village = new THREE.Group();
+    village.position.set(L.village[0], 0, L.village[1]);
+    root.add(village);
+    buildAnimalVillage(village, isDark);
+  }
 
   buildStaff(root, isDark);
   buildAnimals(root);
   buildAnimalProps(root, isDark);
   buildVisitors(root, isDark);
-  buildButterflies(root);
+  if (content.butterflies) buildButterflies(root);
   if (L.shuttle) buildShuttle(root);
   buildPendantLamps(root);
 
