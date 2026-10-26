@@ -1,7 +1,8 @@
 import { AGENTS, AGENT_IDS } from './data/agents';
 import { appState, bus, logStore, sessionStore } from './store/store';
 import { connectBridge, disconnectBridge, DEFAULT_BRIDGE_URL, requestSessionDiff, requestSessionHistory } from './lib/bridge';
-import { rebuildForTheme, setCameraPreset, setSceneActive } from './lib/scene';
+import { rebuildForTheme, setCameraPreset, setSceneActive, setWorldTheme, getWorldThemeId } from './lib/scene';
+import { WORLD_THEMES, type WorldThemeId } from './lib/themes';
 import { coffeeBreak } from './sim/engine';
 import { isAudioEnabled, setAudioEnabled } from './lib/audio';
 import type {
@@ -1004,10 +1005,41 @@ export function initRouter(): void {
 }
 
 /* ------------------------------------------------------------ stage bar ui */
+
+function worldBtnClass(active: boolean): string {
+  return active
+    ? 'px-2 py-0.5 rounded bg-slate-200 dark:bg-zinc-700 text-slate-900 dark:text-white font-medium hover:bg-slate-300 transition'
+    : 'px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white transition';
+}
+
+function initWorldSelector(): void {
+  const box = $('worldSelector');
+  if (!box) return;
+  const refresh = (): void => {
+    const current = getWorldThemeId();
+    box.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+      const active = b.dataset['world'] === current;
+      b.className = worldBtnClass(active);
+      b.setAttribute('aria-pressed', String(active));
+    });
+  };
+  WORLD_THEMES.forEach((theme) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset['world'] = theme.id;
+    btn.title = theme.label;
+    btn.textContent = `${theme.emoji} ${theme.label.split(' ')[0]}`;
+    btn.addEventListener('click', () => setWorldTheme(theme.id as WorldThemeId));
+    box.appendChild(btn);
+  });
+  refresh();
+}
+
 function initStageControls(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-cam]').forEach((btn) => {
     btn.addEventListener('click', () => setCameraPreset(btn.dataset['cam'] ?? 'iso'));
   });
+  initWorldSelector();
   $('coffeeBtn')?.addEventListener('click', () => coffeeBreak());
   const follow = $<HTMLInputElement>('followToggle');
   follow?.addEventListener('change', () => {

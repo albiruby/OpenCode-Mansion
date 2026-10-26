@@ -28,6 +28,12 @@ ringed by a dense multi-species rainforest with a black-water river.
   No demo mode, no placeholder data.
 -  **9 animated agents per session** (1 lead + 8 squad) — CC0 Quaternius rigs
   with per-agent tinted outfits, cross-faded idle/walk clips synced to real speed.
+- 🌍 **Six world presets with real site plans** — Forest Campus, Floating
+  Kingdom, Cyber Megacity, Tropical Paradise, Toybox and Space Colony. Each
+  world rearranges the pool wing, courts, animal village, attractions and
+  district skyline, and changes the campus plate itself (cliff island, orbital
+  pedestal, playmat, neon deck). Agents, desks, live screens and physics behave
+  identically in every world.
 - 🌳 **Collision-aware movement** — A* navigation + steering physics: agents route
   through glass-room doors, walk around desks and furniture, queue through gaps,
   never clip through anything, and the campus shuttle brakes for pedestrians.
@@ -37,12 +43,39 @@ ringed by a dense multi-species rainforest with a black-water river.
 - 📺 **Live data in-world** — a Command Center tower screen, a physical Session
   Board (RUNNING / IDLE / FAILED), a Server Status screen and a Lounge TV CI feed,
   all painted from your real event stream.
-- 🌧️ **Amazon surroundings** — ~470 instanced trees in 6 species (emergent kapok,
-  Brazil-nut, liana figs, açaí palms, tree ferns), river, drifting mist, circling
-  macaws by day and fireflies by night.
+- 🌧️ **Amazon surroundings** — in the Forest world: ~470 instanced trees in 6
+  species (emergent kapok, Brazil-nut, liana figs, açaí palms, tree ferns),
+  river, drifting mist, circling macaws by day and fireflies by night.
 - 🌗 **Day/night** — the theme button relights the 3D estate; the dashboard's own theme stays untouched.
 - 🪶 **Graceful fallbacks** — the ~25 MB CC0 art pack is optional; without it every
   asset renders as procedural art, so a fresh clone looks alive in seconds.
+
+## 🌍 Six worlds, six site plans
+
+Pick a world from the toolbar: **🌲 Forest · ☁️ Floating · 🌆 Cyber · 🏝️ Tropical · 🧸 Toybox · 🚀 Space**.
+Switching a world does not just repaint the estate — it re-plans it:
+
+- the **pool + gym wing**, the **padel / soccer / basketball courts**, the
+  **animal village** and the **attractions cluster** each move to a different
+  part of the campus per world (collision, agent walk targets, visitor spots and
+  camera presets follow automatically);
+- the five **district towers** form a different skyline — a ring, a beach arc,
+  a scattered toy-block town, orbital pods or a neon wall of skyscrapers;
+- the **campus plate** itself changes: a sky-island cliff with floating
+  boulders, an orbital pedestal with a beacon ring, a candy playmat border or a
+  neon-edged deck. Forest and beach worlds keep the plain lawn.
+- Roads and the campus shuttle exist where they make sense (Forest, Cyber);
+  the other worlds are car-free.
+
+The office, desks, live screens and every agent stay put — same real sessions,
+same read-only data, same physics.
+
+| | | |
+|---|---|---|
+| **🌲 Forest Campus** — jungle belt, river, boulevard shuttle, pool east. | **☁️ Floating Kingdom** — sky island, pool west, courts north, boulders adrift. | **🌆 Cyber Megacity** — wall of neon towers, pool north, courts north-east. |
+| ![Forest world](docs/gallery/world-forest.png) | ![Floating world](docs/gallery/world-floating.png) | ![Cyberpunk world](docs/gallery/world-cyberpunk.png) |
+| **🏝️ Tropical Paradise** — beach ring, pool centre-south, village north-east. | **🧸 Toybox World** — playmat border, pool south-east, village west. | **🚀 Space Colony** — orbital pedestal, pool east, village west. |
+| ![Tropical world](docs/gallery/world-tropical.png) | ![Toybox world](docs/gallery/world-toybox.png) | ![Space world](docs/gallery/world-space.png) |
 
 ## 📸 Gallery
 

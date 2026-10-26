@@ -20,7 +20,8 @@ import {
   stepBody,
   type SeparationBody,
 } from './physics';
-import { buildAmazonRainforest, animateJungle, resetJungle } from './jungle';
+import { buildSurroundings, updateSurroundings, resetSurroundings } from './surroundings';
+import { setActiveTheme, activeTheme, type WorldThemeId } from './themes';
 import type { AgentDef, AgentId, SessionStatus, SessionSummary } from '../types';
 
 /* --------------------------------------------------------------------------
@@ -93,7 +94,7 @@ const FLOOR_CENTER = { x: 30, z: 0 };
 const DESK_X = [-17, -11, -5, 1, 7];
 const DESK_ROW_Z = [-6, -1];
 
-const SPOTS: Record<string, { x: number; z: number; rot: number }[]> = {
+const BASE_SPOTS: Record<string, { x: number; z: number; rot: number }[]> = {
   coffee: [
     { x: -16.4, z: 8.5, rot: 0 },
     { x: -14.2, z: 8.7, rot: 0 },
@@ -128,6 +129,41 @@ const SPOTS: Record<string, { x: number; z: number; rot: number }[]> = {
     { x: 53, z: 38, rot: Math.PI },
   ],
 };
+
+/**
+ * Live roam targets: the base layout shifted by the active world's site plan,
+ * so agents walk to where the pool / courts actually are in every world.
+ */
+const SPOTS: Record<string, { x: number; z: number; rot: number }[]> = {};
+
+function rebuildRoamTargets(): void {
+  const L = activeTheme().layout;
+  const offsets: Record<string, [number, number]> = {
+    pool: L.pool,
+    gym: L.pool,
+    padel: L.sports,
+    soccer: L.sports,
+  };
+  for (const key of Object.keys(BASE_SPOTS)) {
+    const off = offsets[key];
+    SPOTS[key] = off
+      ? BASE_SPOTS[key]!.map((s) => ({ x: s.x + off[0], z: s.z + off[1], rot: s.rot }))
+      : BASE_SPOTS[key]!.map((s) => ({ ...s }));
+  }
+  // Animal village zones follow the village; the loose south/west/north herds
+  // stay on the open lawns.
+  ANIMAL_SPOTS.village = BASE_ANIMAL_SPOTS.village.map((s) => ({
+    x: s.x + L.village[0],
+    z: s.z + L.village[1],
+  }));
+  // Visitors gather around the pool and the village wherever they sit.
+  CROWD_SPOTS.length = 0;
+  for (const s of BASE_CROWD_SPOTS) {
+    const off = s.z > 42 ? L.village : s.x > 58 ? L.pool : null;
+    CROWD_SPOTS.push(off ? { x: s.x + off[0], z: s.z + off[1], rot: s.rot } : { ...s });
+  }
+  rebuildPresets();
+}
 
 type SpotKey =
   | 'desk'
@@ -167,6 +203,10 @@ const collisionWorld = new CollisionWorld(
 function registerCollisionGeometry(): void {
   const w = collisionWorld;
   w.clear();
+  const L = activeTheme().layout;
+  const [px, pz] = L.pool;
+  const [ax, az] = L.attractions;
+  const [vx, vz] = L.village;
 
   // Office back wall (the only solid wall in the open-air wing).
   w.addBox(0, -14.8, 44, 0.5);
@@ -230,50 +270,51 @@ function registerCollisionGeometry(): void {
   w.addBox(-21, 12.2, 1.15, 1.15); // pantry armchair
   w.addBox(-19.2, 6.4, 1.2, 0.95); // coffee cart
 
-  // Sports wing.
-  w.addBox(80, 16, 22, 16); // pool water
-  for (const x of [72, 78, 84, 90]) w.addBox(x, 29.5, 1.9, 0.75); // loungers
+  // Sports wing (pool + gym), wherever the world places it.
+  w.addBox(80 + px, 16 + pz, 22, 16); // pool water
+  for (const x of [72, 78, 84, 90]) w.addBox(x + px, 29.5 + pz, 1.9, 0.75); // loungers
   for (const [x, z] of [
     [66, 4],
     [94, 4],
     [66, 33],
     [94, 33],
   ] as [number, number][]) {
-    w.addBox(x, z, 0.7, 0.7); // palms
+    w.addBox(x + px, z + pz, 0.7, 0.7); // palms
   }
-  w.addBox(43, 42, 2.6, 0.8); // gym bench
-  w.addBox(53.4, 42, 2.8, 0.6); // squat rack
-  w.addBox(55, 35, 0.8, 0.8); // punching bag
-  w.addBox(48, 46, 8, 0.4); // gym mirror wall
+  w.addBox(43 + px, 42 + pz, 2.6, 0.8); // gym bench
+  w.addBox(53.4 + px, 42 + pz, 2.8, 0.6); // squat rack
+  w.addBox(55 + px, 35 + pz, 0.8, 0.8); // punching bag
+  w.addBox(48 + px, 46 + pz, 8, 0.4); // gym mirror wall
 
   // Command / district buildings.
-  w.addBox(-15, -34, 12, 10);
-  w.addBox(44, -42, 12, 10);
-  w.addBox(20, -48, 10, 8);
-  w.addBox(96, -10, 12, 10);
-  w.addBox(96, -42, 16, 12);
+  const T = L.towers;
+  for (const t of [T.engineering, T.research, T.qa, T.infrastructure, T.command]) {
+    w.addBox(t.x, t.z, t.w, t.d);
+  }
   w.addBox(40, 14, 10.6, 0.7); // session board
   w.addBox(16.4, -14.55, 5.5, 0.4); // server status screen
 
   // Attractions close to walkable routes.
-  w.addBox(26, -36, 9, 7); // koi pond
-  w.addBox(0, -48, 7, 7); // observatory
-  w.addBox(16, 42, 3.2, 3.2); // fire pit
-  w.addBox(62, 34, 3.2, 2.2); // food truck / cart
-  w.addBox(64, 29, 4, 1.2); // pool bar
+  w.addBox(26 + ax, -36 + az, 9, 7); // koi pond
+  w.addBox(0 + ax, -48 + az, 7, 7); // observatory
+  w.addBox(16 + ax, 42 + az, 3.2, 3.2); // fire pit
+  w.addBox(62 + ax, 34 + az, 3.2, 2.2); // food truck / cart
+  w.addBox(64 + ax, 29 + az, 4, 1.2); // pool bar
 
   // Boulevard bollards line both sidewalks.
-  for (let z = -44; z <= 46; z += 12) {
-    for (const dx of [-6.8, 6.8]) w.addBox(30 + dx, z, 0.34, 0.34);
+  if (L.roads) {
+    for (let z = -44; z <= 46; z += 12) {
+      for (const dx of [-6.8, 6.8]) w.addBox(30 + dx, z, 0.34, 0.34);
+    }
   }
 
   // Animal village.
-  w.addBox(94, 55.5, 6.2, 4.4);
-  w.addBox(101.5, 64.5, 5.0, 4.0, -Math.PI / 2);
-  w.addBox(89.5, 69.8, 5.2, 4.0);
-  w.addBox(77.5, 68.3, 6.4, 6.4); // duck pond
-  w.addBox(69.8, 57.3, 2.4, 1.6); // hay bales
-  w.addBox(71.3, 64.9, 2.2, 2.2); // vegetable patch
+  w.addBox(94 + vx, 55.5 + vz, 6.2, 4.4);
+  w.addBox(101.5 + vx, 64.5 + vz, 5.0, 4.0, -Math.PI / 2);
+  w.addBox(89.5 + vx, 69.8 + vz, 5.2, 4.0);
+  w.addBox(77.5 + vx, 68.3 + vz, 6.4, 6.4); // duck pond
+  w.addBox(69.8 + vx, 57.3 + vz, 2.4, 1.6); // hay bales
+  w.addBox(71.3 + vx, 64.9 + vz, 2.2, 2.2); // vegetable patch
 
   w.build(AGENT_RADIUS);
 }
@@ -335,7 +376,7 @@ const CROWD_COLORS = [
   0xf97316, 0x10b981, 0x3b82f6, 0xd946ef, 0xeab308, 0x2dd4bf,
   0xfb7185, 0x818cf8, 0x4ade80, 0xfacc15, 0x38bdf8, 0xc084fc,
 ];
-const CROWD_SPOTS: { x: number; z: number; rot: number }[] = [
+const BASE_CROWD_SPOTS: { x: number; z: number; rot: number }[] = [
   { x: 79, z: 31.5, rot: Math.PI },
   { x: 86, z: 31.5, rot: Math.PI },
   { x: 70.5, z: 27.2, rot: Math.PI },
@@ -353,6 +394,9 @@ const CROWD_SPOTS: { x: number; z: number; rot: number }[] = [
   { x: -32, z: -31, rot: Math.PI },
   { x: -31, z: 2, rot: 0 },
 ];
+
+/** Visitor gathering spots for the active world (filled by rebuildRoamTargets). */
+const CROWD_SPOTS: { x: number; z: number; rot: number }[] = [];
 
 function deskSpot(ag: AgentDef): { x: number; z: number } {
   const row = Math.floor(ag.deskIndex / 5);
@@ -601,7 +645,7 @@ function stepTween(now: number): void {
   if (t >= 1) tween = null;
 }
 
-const PRESETS: Record<string, { pos: [number, number, number]; look: [number, number, number] }> = {
+const BASE_PRESETS: Record<string, { pos: [number, number, number]; look: [number, number, number] }> = {
   overview: { pos: [30, 140, 185], look: [30, 0, 24] },
   office: { pos: [25, 24, 33], look: [3, 0.4, 6] },
   iso: { pos: [25, 24, 33], look: [3, 0.4, 6] },
@@ -621,6 +665,31 @@ const PRESETS: Record<string, { pos: [number, number, number]; look: [number, nu
   board: { pos: [40, 8.4, 28.5], look: [40, 3.2, 14] },
   village: { pos: [86, 13, 86], look: [86, 1, 61] },
 };
+
+/** Camera presets for the active world (filled by rebuildPresets). */
+const PRESETS: Record<string, { pos: [number, number, number]; look: [number, number, number] }> = {};
+
+function rebuildPresets(): void {
+  const L = activeTheme().layout;
+  const shift = (
+    p: { pos: [number, number, number]; look: [number, number, number] },
+    [dx, dz]: [number, number],
+  ): { pos: [number, number, number]; look: [number, number, number] } => ({
+    pos: [p.pos[0] + dx, p.pos[1], p.pos[2] + dz],
+    look: [p.look[0] + dx, p.look[1], p.look[2] + dz],
+  });
+  for (const key of Object.keys(BASE_PRESETS)) PRESETS[key] = BASE_PRESETS[key]!;
+  PRESETS['pool'] = shift(BASE_PRESETS['pool']!, L.pool);
+  PRESETS['gym'] = shift(BASE_PRESETS['gym']!, L.pool);
+  PRESETS['padel'] = shift(BASE_PRESETS['padel']!, L.sports);
+  PRESETS['soccer'] = shift(BASE_PRESETS['soccer']!, L.sports);
+  PRESETS['basket'] = shift(BASE_PRESETS['basket']!, L.sports);
+  PRESETS['cinema'] = shift(BASE_PRESETS['cinema']!, L.attractions);
+  PRESETS['tennis'] = shift(BASE_PRESETS['tennis']!, L.attractions);
+  PRESETS['village'] = shift(BASE_PRESETS['village']!, L.village);
+  const c = L.towers.command;
+  PRESETS['command'] = { pos: [c.x, 14, c.z + 20], look: [c.x, 6, c.z + 4] };
+}
 
 export function setCameraPreset(name: string): void {
   const p = PRESETS[name];
@@ -1005,23 +1074,29 @@ function paintScreens(force = false): void {
 }
 
 function createSkyTexture(isDark: boolean): THREE.CanvasTexture {
+  const P = activeTheme();
   const canvas = document.createElement('canvas');
-  canvas.width = 16;
+  canvas.width = 96;
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   if (ctx) {
+    const stops = isDark ? P.skyNight : P.skyDay;
     const gradient = ctx.createLinearGradient(0, 0, 0, 256);
-    if (isDark) {
-      gradient.addColorStop(0, '#020617');
-      gradient.addColorStop(0.55, '#0f172a');
-      gradient.addColorStop(1, '#1e293b');
-    } else {
-      gradient.addColorStop(0, '#bfe3ff');
-      gradient.addColorStop(0.55, '#e0f2fe');
-      gradient.addColorStop(1, '#fefce8');
-    }
+    gradient.addColorStop(0, stops[0]);
+    gradient.addColorStop(0.55, stops[1]);
+    gradient.addColorStop(1, stops[2]);
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 16, 256);
+    ctx.fillRect(0, 0, 96, 256);
+    if (P.stars) {
+      const starCount = isDark ? 220 : 120;
+      for (let i = 0; i < starCount; i++) {
+        const x = (i * 37.7) % 96;
+        const y = ((i * 71.3) % 256) * (isDark ? 1 : 0.6);
+        const s = (i % 7) === 0 ? 1.6 : 0.9;
+        ctx.fillStyle = `rgba(255,255,255,${0.25 + ((i * 13) % 10) / 22})`;
+        ctx.fillRect(x, y, s, s);
+      }
+    }
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -1031,17 +1106,17 @@ function createSkyTexture(isDark: boolean): THREE.CanvasTexture {
 }
 
 function createCampusTexture(isDark: boolean): THREE.CanvasTexture {
+  const P = activeTheme();
+  const stripes = isDark ? P.campusNight : P.campusDay;
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
   const ctx = canvas.getContext('2d');
   if (ctx) {
-    ctx.fillStyle = isDark ? '#12301f' : '#7cc576';
+    ctx.fillStyle = stripes[0];
     ctx.fillRect(0, 0, 512, 512);
     for (let i = 0; i < 8; i++) {
-      ctx.fillStyle = i % 2 === 0
-        ? isDark ? '#163a26' : '#85ce7e'
-        : isDark ? '#0f2b1c' : '#73bd6d';
+      ctx.fillStyle = i % 2 === 0 ? stripes[1] : stripes[2];
       ctx.fillRect(0, (i * 512) / 8, 512, 512 / 8);
     }
     for (let i = 0; i < 140; i++) {
@@ -1148,9 +1223,10 @@ function createWindowTexture(): THREE.CanvasTexture {
 }
 
 function buildFloorAndWalls(root: THREE.Group, isDark: boolean): void {
+  const P = activeTheme();
   const floorMat =
     pbrMaterial(realisticAssets, 'grass', [18, 15], {
-      color: isDark ? 0x6f8f72 : 0x9fd08b,
+      color: isDark ? P.lawnTintNight : P.lawnTintDay,
       roughness: 1,
       normalScale: 0.35,
     }) ??
@@ -1185,10 +1261,10 @@ function buildFloorAndWalls(root: THREE.Group, isDark: boolean): void {
   root.add(officeFloor);
 
   // The campus is open-air; only the office wing keeps a back wall.
-  const wallMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x18181b : 0xe2e8f0, roughness: 0.9 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: isDark ? P.wallNight : P.wallDay, roughness: 0.9 });
   const outerLawnMat =
     pbrMaterial(realisticAssets, 'grass', [30, 26], {
-      color: isDark ? 0x5f7f62 : 0x9fd08b,
+      color: isDark ? P.lawnTintNight : P.lawnTintDay,
       roughness: 1,
       normalScale: 0.3,
     }) ??
@@ -1208,7 +1284,7 @@ function buildFloorAndWalls(root: THREE.Group, isDark: boolean): void {
   const frameMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x3f3f46 : 0x94a3b8, metalness: 0.3 });
   const glassMat = new THREE.MeshStandardMaterial({
     map: createWindowTexture(),
-    emissive: isDark ? 0x1e3a8a : 0x93c5fd,
+    emissive: isDark ? P.glassNight : P.glassDay,
     emissiveIntensity: isDark ? 0.35 : 0.15,
     roughness: 0.2,
   });
@@ -2024,10 +2100,11 @@ function buildGlassWall(
   to: number,
   gap?: [number, number],
 ): void {
+  const P = activeTheme();
   const H = 2.6;
   const alongX = axis === 'x';
   const glassMat = new THREE.MeshStandardMaterial({
-    color: isDark ? 0x1e3a8a : 0x93c5fd,
+    color: isDark ? P.glassNight : P.glassDay,
     transparent: true,
     opacity: isDark ? 0.2 : 0.24,
     roughness: 0.08,
@@ -2159,13 +2236,15 @@ function buildRooms(root: THREE.Group, isDark: boolean): void {
    Mansion sports wing: pool, padel, mini soccer, gym, atrium, squad loft
    -------------------------------------------------------------------------- */
 function createTurfTexture(isDark: boolean): THREE.CanvasTexture {
+  const P = activeTheme();
+  const stripes = isDark ? P.turfNight : P.turfDay;
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   if (ctx) {
     for (let i = 0; i < 8; i++) {
-      ctx.fillStyle = i % 2 === 0 ? (isDark ? '#14532d' : '#2f9e44') : isDark ? '#166534' : '#37b24d';
+      ctx.fillStyle = i % 2 === 0 ? stripes[0] : stripes[1];
       ctx.fillRect(0, (i * 256) / 8, 256, 256 / 8);
     }
   }
@@ -2178,14 +2257,15 @@ function createTurfTexture(isDark: boolean): THREE.CanvasTexture {
 }
 
 function createPalm(root: THREE.Group, x: number, z: number): void {
+  const P = activeTheme();
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.14, 0.22, 3.4, 8),
-    new THREE.MeshStandardMaterial({ color: 0x8b5e34, roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({ color: P.trunkDay, roughness: 0.9 }),
   );
   trunk.position.set(x, 1.7, z);
   trunk.castShadow = true;
   root.add(trunk);
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.7, side: THREE.DoubleSide });
+  const leafMat = new THREE.MeshStandardMaterial({ color: P.leafDay[0] ?? 0x15803d, roughness: 0.7, side: THREE.DoubleSide });
   for (let i = 0; i < 7; i++) {
     const angle = (i / 7) * Math.PI * 2;
     const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.32, 2.2, 4), leafMat);
@@ -2209,8 +2289,8 @@ function buildPool(root: THREE.Group, isDark: boolean): void {
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(22, 16),
     new THREE.MeshStandardMaterial({
-      color: 0x0ea5e9,
-      emissive: 0x0284c7,
+      color: activeTheme().waterDay,
+      emissive: activeTheme().waterNight,
       emissiveIntensity: 0.25,
       transparent: true,
       opacity: 0.92,
@@ -2671,13 +2751,15 @@ function createCampusTree(
   scale = 1,
   tint = 0x15803d,
 ): void {
+  const P = activeTheme();
+  const leafColor = P.leafDay[Math.floor(Math.random() * P.leafDay.length)] ?? tint;
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.16 * scale, 0.24 * scale, 2.8 * scale, 7),
-    new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 1 }),
+    new THREE.MeshStandardMaterial({ color: P.trunkDay, roughness: 1 }),
   );
   trunk.position.set(x, 1.4 * scale, z);
   root.add(trunk);
-  const leaves = new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85 });
+  const leaves = new THREE.MeshStandardMaterial({ color: leafColor, roughness: 0.85 });
   const crownParts: [number, number, number, number][] = [
     [0, 3.2, 0, 1.35],
     [-0.55, 2.85, 0.3, 0.95],
@@ -2815,11 +2897,22 @@ function buildCampusLandscaping(root: THREE.Group, isDark: boolean): void {
 }
 
 function buildSportsWing(root: THREE.Group, isDark: boolean): void {
-  buildPool(root, isDark);
-  buildPadel(root, isDark);
-  buildSoccer(root, isDark);
-  buildBasketball(root, isDark);
-  buildGym(root, isDark);
+  const L = activeTheme().layout;
+  // Courts and the pool wing are separate site-plan blocks: every world puts
+  // them somewhere else, so agents and collision follow the same offsets.
+  const courts = new THREE.Group();
+  courts.position.set(L.sports[0], 0, L.sports[1]);
+  root.add(courts);
+  buildPadel(courts, isDark);
+  buildSoccer(courts, isDark);
+  buildBasketball(courts, isDark);
+
+  const poolWing = new THREE.Group();
+  poolWing.position.set(L.pool[0], 0, L.pool[1]);
+  root.add(poolWing);
+  buildPool(poolWing, isDark);
+  buildGym(poolWing, isDark);
+
   buildAtrium(root, isDark);
   buildCrowdLoft(root, isDark);
   buildGarden(root, isDark);
@@ -2830,6 +2923,7 @@ function buildSportsWing(root: THREE.Group, isDark: boolean): void {
    parking, koi pond, entrance arch, flags, lamps, sculpture
    -------------------------------------------------------------------------- */
 function buildAttractions(root: THREE.Group, isDark: boolean): void {
+  const P = activeTheme();
   const darkMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x111827 : 0x1f2937, roughness: 0.95 });
   const woodMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x3f3f46 : 0xcdb79e, roughness: 0.6 });
   const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
@@ -2909,7 +3003,7 @@ function buildAttractions(root: THREE.Group, isDark: boolean): void {
   box(6.2, 0.5, 0.2, 63, 3.0, 27.4, new THREE.MeshStandardMaterial({ color: 0x0f172a }));
   const neon = new THREE.Mesh(
     new THREE.PlaneGeometry(4.6, 0.7),
-    new THREE.MeshBasicMaterial({ color: 0xf472b6 }),
+    new THREE.MeshBasicMaterial({ color: P.accent }),
   );
   neon.position.set(63, 3.0, 27.5);
   root.add(neon);
@@ -2991,7 +3085,7 @@ function buildAttractions(root: THREE.Group, isDark: boolean): void {
   // Koi pond
   const pond = new THREE.Mesh(
     new THREE.PlaneGeometry(8, 5),
-    new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x0369a1, emissiveIntensity: 0.2, roughness: 0.1 }),
+    new THREE.MeshStandardMaterial({ color: P.waterDay, emissive: P.waterNight, emissiveIntensity: 0.2, roughness: 0.1 }),
   );
   pond.rotation.x = -Math.PI / 2;
   pond.position.set(26, 0.05, -36);
@@ -3597,7 +3691,7 @@ const shuttleState = {
 
 function buildShuttle(root: THREE.Group): void {
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, metalness: 0.45, roughness: 0.3 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: activeTheme().accent, metalness: 0.45, roughness: 0.3 });
   const glassMat = new THREE.MeshStandardMaterial({
     color: 0x0f172a,
     metalness: 0.7,
@@ -3774,31 +3868,42 @@ function animateShuttle(dt: number, time: number): void {
 /* --------------------------------------------------------------------------
    Campus staff (static life in the attractions)
    -------------------------------------------------------------------------- */
-const STAFF_DEFS: { name: string; x: number; z: number; rot: number; color: number }[] = [
-  { name: 'Lifeguard', x: 94.5, z: 18, rot: -Math.PI / 2, color: 0xef4444 },
-  { name: 'Bartender', x: 63, z: 26.2, rot: 0, color: 0xf472b6 },
-  { name: 'Soccer Coach', x: 73, z: -2.8, rot: Math.PI, color: 0x22c55e },
-  { name: 'Hoops Coach', x: 60.5, z: -40, rot: Math.PI / 2, color: 0xfacc15 },
-  { name: 'Gym Trainer', x: 44, z: 36, rot: 0, color: 0x8b5cf6 },
-  { name: 'Librarian', x: -31.5, z: 1.2, rot: 0, color: 0x3b82f6 },
-  { name: 'Cinema Host', x: -32, z: -28.6, rot: 0, color: 0xef4444 },
-  { name: 'Gardener', x: 26, z: -31.5, rot: 0, color: 0x4ade80 },
-  { name: 'Yoga Instructor', x: 71, z: 36.5, rot: 0, color: 0xf472b6 },
-  { name: 'DJ', x: 50, z: 25.2, rot: 0, color: 0x8b5cf6 },
-  { name: 'Ice Cream', x: 62, z: 35.6, rot: 0, color: 0xfbbf24 },
+const STAFF_DEFS: {
+  name: string;
+  x: number;
+  z: number;
+  rot: number;
+  color: number;
+  zone: 'pool' | 'sports' | 'attractions';
+}[] = [
+  { name: 'Lifeguard', x: 94.5, z: 18, rot: -Math.PI / 2, color: 0xef4444, zone: 'pool' },
+  { name: 'Bartender', x: 63, z: 26.2, rot: 0, color: 0xf472b6, zone: 'attractions' },
+  { name: 'Soccer Coach', x: 73, z: -2.8, rot: Math.PI, color: 0x22c55e, zone: 'sports' },
+  { name: 'Hoops Coach', x: 60.5, z: -40, rot: Math.PI / 2, color: 0xfacc15, zone: 'sports' },
+  { name: 'Gym Trainer', x: 44, z: 36, rot: 0, color: 0x8b5cf6, zone: 'pool' },
+  { name: 'Librarian', x: -31.5, z: 1.2, rot: 0, color: 0x3b82f6, zone: 'attractions' },
+  { name: 'Cinema Host', x: -32, z: -28.6, rot: 0, color: 0xef4444, zone: 'attractions' },
+  { name: 'Gardener', x: 26, z: -31.5, rot: 0, color: 0x4ade80, zone: 'attractions' },
+  { name: 'Yoga Instructor', x: 71, z: 36.5, rot: 0, color: 0xf472b6, zone: 'attractions' },
+  { name: 'DJ', x: 50, z: 25.2, rot: 0, color: 0x8b5cf6, zone: 'attractions' },
+  { name: 'Ice Cream', x: 62, z: 35.6, rot: 0, color: 0xfbbf24, zone: 'attractions' },
 ];
 const staffGroups: THREE.Group[] = [];
 
 function buildStaff(root: THREE.Group, isDark: boolean): void {
   staffGroups.length = 0;
+  const L = activeTheme().layout;
   STAFF_DEFS.forEach((def, i) => {
     const base = AGENTS[AGENT_IDS[(i + 3) % AGENT_IDS.length] ?? 'max'];
+    const off = def.zone === 'pool' ? L.pool : def.zone === 'sports' ? L.sports : L.attractions;
+    const sx = def.x + off[0];
+    const sz = def.z + off[1];
     const look: AgentDef = {
       ...base,
       id: base.id,
       name: def.name,
       color: def.color,
-      pos3D: { x: def.x, y: 0, z: def.z },
+      pos3D: { x: sx, y: 0, z: sz },
       deskIndex: i,
       ambient: true,
       state: 'IDLE',
@@ -3806,7 +3911,7 @@ function buildStaff(root: THREE.Group, isDark: boolean): void {
       currentTask: '',
     };
     const group = buildCharacter(look, isDark);
-    group.position.set(def.x, 0, def.z);
+    group.position.set(sx, 0, sz);
     group.rotation.y = def.rot;
     tagInspect(group, def.name, 'Campus Staff', 'Staff dekoratif kampus, bukan sesi OpenCode.');
     delete group.userData.agentId;
@@ -3918,19 +4023,20 @@ function buildTowerBlock(
 }
 
 function buildCommandCenter(root: THREE.Group, isDark: boolean): void {
-  buildTowerBlock(root, isDark, { x: 96, z: -42, w: 16, d: 12, h: 13, color: 0xb45309, label: 'COMMAND CENTER' });
+  const c = activeTheme().layout.towers.command;
+  buildTowerBlock(root, isDark, { ...c, color: activeTheme().towers[4], label: 'COMMAND CENTER' });
   if (!commandTexture) return;
   const frame = new THREE.Mesh(
     new THREE.BoxGeometry(13, 6.6, 0.4),
     new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.4 }),
   );
-  frame.position.set(96, 7.2, -35.7);
+  frame.position.set(c.x, 7.2, c.z + 6.3);
   root.add(frame);
   const screen = new THREE.Mesh(
     new THREE.PlaneGeometry(12.4, 6.0),
     new THREE.MeshBasicMaterial({ map: commandTexture }),
   );
-  screen.position.set(96, 7.2, -35.45);
+  screen.position.set(c.x, 7.2, c.z + 6.55);
   tagInspect(
     screen,
     'Command Center Screen',
@@ -4043,16 +4149,20 @@ function buildServerStatusScreen(root: THREE.Group): void {
 }
 
 function buildDistricts(root: THREE.Group, isDark: boolean): void {
+  const P = activeTheme();
+  const L = P.layout;
   buildCommandCenter(root, isDark);
-  buildTowerBlock(root, isDark, { x: -15, z: -34, w: 12, d: 10, h: 13, color: 0x0d9488, label: 'ENGINEERING' });
-  buildTowerBlock(root, isDark, { x: 44, z: -42, w: 12, d: 10, h: 16, color: 0x7c3aed, label: 'RESEARCH' });
-  buildTowerBlock(root, isDark, { x: 20, z: -48, w: 10, d: 8, h: 10, color: 0x059669, label: 'QA LAB' });
-  buildTowerBlock(root, isDark, { x: 96, z: -10, w: 12, d: 10, h: 14, color: 0x2563eb, label: 'INFRASTRUCTURE' });
+  const T = L.towers;
+  buildTowerBlock(root, isDark, { ...T.engineering, color: P.towers[0], label: 'ENGINEERING' });
+  buildTowerBlock(root, isDark, { ...T.research, color: P.towers[1], label: 'RESEARCH' });
+  buildTowerBlock(root, isDark, { ...T.qa, color: P.towers[2], label: 'QA LAB' });
+  buildTowerBlock(root, isDark, { ...T.infrastructure, color: P.towers[3], label: 'INFRASTRUCTURE' });
   buildTaskBoard(root, isDark);
   buildServerStatusScreen(root);
 }
 
 function buildRoads(root: THREE.Group, isDark: boolean): void {
+  if (!activeTheme().layout.roads) return;
   const asphalt =
     pbrMaterial(realisticAssets, 'asphalt', [2, 24], {
       color: isDark ? 0x707070 : 0xffffff,
@@ -4151,6 +4261,7 @@ function buildRoads(root: THREE.Group, isDark: boolean): void {
   buildRoomLabel(root, 38.2, 2.0, 40, 'SHUTTLE', 1.8);
 }
 function buildAnimalVillage(root: THREE.Group, isDark: boolean): void {
+  const P = activeTheme();
   const lawn = new THREE.MeshStandardMaterial({ color: isDark ? 0x14532d : 0x86c06c, roughness: 1 });
   const pathMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x3f3f46 : 0xd6c3a1, roughness: 0.95 });
   const wood = new THREE.MeshStandardMaterial({ color: isDark ? 0x78350f : 0xa16207, roughness: 0.85 });
@@ -4275,8 +4386,8 @@ function buildAnimalVillage(root: THREE.Group, isDark: boolean): void {
   const pond = new THREE.Mesh(
     new THREE.PlaneGeometry(9.2, 5.0),
     new THREE.MeshStandardMaterial({
-      color: 0x0ea5e9,
-      emissive: 0x0369a1,
+      color: P.waterDay,
+      emissive: P.waterNight,
       emissiveIntensity: 0.22,
       roughness: 0.1,
     }),
@@ -4521,7 +4632,7 @@ interface Animal {
 
 const animals: Animal[] = [];
 
-const ANIMAL_SPOTS: Record<'south' | 'west' | 'north' | 'village', { x: number; z: number }[]> = {
+const BASE_ANIMAL_SPOTS: Record<'south' | 'west' | 'north' | 'village', { x: number; z: number }[]> = {
   south: [
     { x: 22, z: 48 }, { x: 30, z: 46 }, { x: 44, z: 50 }, { x: 58, z: 47 },
     { x: 72, z: 51 }, { x: 80, z: 48 }, { x: 64, z: 45 }, { x: 36, z: 43 },
@@ -4540,6 +4651,14 @@ const ANIMAL_SPOTS: Record<'south' | 'west' | 'north' | 'village', { x: number; 
     { x: 90, z: 64 }, { x: 96, z: 61 }, { x: 100, z: 58 }, { x: 73, z: 62 },
     { x: 86, z: 68 }, { x: 98, z: 70 }, { x: 76, z: 60 },
   ],
+};
+
+/** Live animal zones for the active world (village follows the site plan). */
+const ANIMAL_SPOTS: Record<'south' | 'west' | 'north' | 'village', { x: number; z: number }[]> = {
+  south: BASE_ANIMAL_SPOTS.south,
+  west: BASE_ANIMAL_SPOTS.west,
+  north: BASE_ANIMAL_SPOTS.north,
+  village: BASE_ANIMAL_SPOTS.village,
 };
 
 function animalMesh(
@@ -4747,7 +4866,39 @@ function buildAnimalModel(kind: AnimalKind): { group: THREE.Group; parts: Animal
     parts.tail = tail;
   }
 
+  styleAnimal(group);
   return { group, parts };
+}
+
+/**
+ * Re-dress an animal model for the active theme: pastel fur, chrome robot
+ * pets with glowing eyes, astronauts in soft white — palette only, the
+ * behaviour and zones stay identical.
+ */
+function styleAnimal(group: THREE.Group): void {
+  const style = activeTheme().animal;
+  const neutral = style.hue === 0 && style.satMul === 1 && style.lightOff === 0 && !style.emissive && style.metalness === undefined;
+  if (neutral) return;
+  group.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+    mats.forEach((m) => {
+      const std = m as THREE.MeshStandardMaterial;
+      if (!std.isMeshStandardMaterial) return;
+      const hsl = { h: 0, s: 0, l: 0 };
+      std.color.getHSL(hsl);
+      std.color.setHSL(
+        (hsl.h + style.hue + 1) % 1,
+        THREE.MathUtils.clamp(hsl.s * style.satMul, 0, 1),
+        THREE.MathUtils.clamp(hsl.l + style.lightOff, 0.04, 0.98),
+      );
+      if (style.emissive !== undefined) {
+        std.emissive.setHex(style.emissive);
+        std.emissiveIntensity = style.emissiveIntensity ?? 0.3;
+      }
+      if (style.metalness !== undefined) std.metalness = style.metalness;
+    });
+  });
 }
 
 function buildAnimals(root: THREE.Group): void {
@@ -5481,7 +5632,7 @@ function clearContent(): void {
   shuttleState.stopDone = false;
   shuttleState.speed = 0;
   shuttleState.accel = 0;
-  resetJungle();
+  resetSurroundings();
   liveFeedTexture = null;
   liveFeedCanvas = null;
   commandTexture = null;
@@ -5497,14 +5648,185 @@ function clearContent(): void {
   tvTexture = null;
 }
 
+/* --------------------------------------------------------------------------
+   Campus plate treatment per world: floating cliff, orbital pedestal,
+   toy playmat border, neon edge. Forest and beach keep the plain lawn.
+   -------------------------------------------------------------------------- */
+function buildCampusBase(root: THREE.Group, isDark: boolean): void {
+  const P = activeTheme();
+  const base = P.layout.base;
+  if (base === 'jungle' || base === 'beach') return;
+  const cx = FLOOR_CENTER.x;
+  const hw = ROOM.w / 2;
+  const hd = ROOM.d / 2;
+
+  if (base === 'cliff') {
+    const rockMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x3f3a5a : 0x8d7f74,
+      roughness: 1,
+      flatShading: true,
+    });
+    const shelf = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.7, 1, 12), rockMat);
+    shelf.scale.set(hw * 1.01, 18, hd * 1.01);
+    shelf.position.set(cx, -9.5, 0);
+    root.add(shelf);
+    // Boulders under the rim, visible past the lawn edge from above.
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const h = 5 + ((i * 13) % 8);
+      const rock = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 7), rockMat);
+      rock.scale.set(7 + (i % 4) * 4, h, 7 + (i % 3) * 5);
+      rock.rotation.x = Math.PI;
+      rock.position.set(
+        cx + Math.cos(a) * (hw * 1.06 + (i % 3) * 5),
+        -0.6 - h / 2,
+        Math.sin(a) * (hd * 1.08 + (i % 4) * 4),
+      );
+      root.add(rock);
+    }
+    // Free-floating boulders around the island — the classic sky-island read.
+    const floatMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x4a4363 : 0x9c8f83,
+      roughness: 1,
+      flatShading: true,
+    });
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.3;
+      const size = 3 + (i % 4) * 2.2;
+      const chunk = new THREE.Mesh(new THREE.DodecahedronGeometry(size, 0), floatMat);
+      chunk.position.set(
+        cx + Math.cos(a) * (hw * 1.16 + (i % 3) * 9),
+        3 + ((i * 7) % 11),
+        Math.sin(a) * (hd * 1.2 + (i % 4) * 7),
+      );
+      chunk.rotation.set(i * 0.7, i * 1.3, i * 0.4);
+      root.add(chunk);
+    }
+    // Cloud sea under the island.
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createRadialGradient(64, 64, 8, 64, 64, 62);
+      grad.addColorStop(0, 'rgba(248,250,255,0.95)');
+      grad.addColorStop(1, 'rgba(226,240,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+    }
+    const cloudTex = new THREE.CanvasTexture(canvas);
+    cloudTex.colorSpace = THREE.SRGBColorSpace;
+    const cloud = new THREE.Mesh(
+      new THREE.PlaneGeometry(900, 820),
+      new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: isDark ? 0.45 : 0.9, depthWrite: false }),
+    );
+    cloud.rotation.x = -Math.PI / 2;
+    cloud.position.set(cx, -13, 0);
+    root.add(cloud);
+    for (let i = 0; i < 4; i++) {
+      const puff = new THREE.Mesh(
+        new THREE.PlaneGeometry(260, 200),
+        new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: isDark ? 0.32 : 0.7, depthWrite: false }),
+      );
+      puff.rotation.x = -Math.PI / 2;
+      puff.position.set(cx + [-140, 120, -60, 150][i]!, -4 - i * 2.2, [-90, 70, 130, -110][i]!);
+      root.add(puff);
+    }
+  }
+
+  if (base === 'deck') {
+    const deckMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x1e293b : 0x475569,
+      metalness: 0.6,
+      roughness: 0.4,
+    });
+    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.94, 1, 48), deckMat);
+    pedestal.scale.set(hw * 0.995, 8, hd * 0.995);
+    pedestal.position.set(cx, -4, 0);
+    root.add(pedestal);
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(1, 0.011, 8, 96),
+      new THREE.MeshBasicMaterial({ color: P.accent }),
+    );
+    rim.scale.set(hw * 0.97, hd * 0.97, 1);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.set(cx, 0.07, 0);
+    root.add(rim);
+    const beaconMat = new THREE.MeshBasicMaterial({ color: P.accent });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.55, 1.4), beaconMat);
+      post.position.set(cx + Math.cos(a) * hw * 0.95, 0.27, Math.sin(a) * hd * 0.95);
+      root.add(post);
+    }
+  }
+
+  if (base === 'playmat') {
+    const candy = [0xef4444, 0xf59e0b, 0xfacc15, 0x22c55e, 0x3b82f6, 0xa855f7];
+    const seg = 16;
+    const segW = (ROOM.w + 8) / seg;
+    const segD = (ROOM.d + 8) / seg;
+    for (let i = 0; i < seg; i++) {
+      const color = candy[i % candy.length]!;
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+      const north = new THREE.Mesh(new THREE.BoxGeometry(segW, 0.5, 2.4), mat);
+      north.position.set(cx - hw - 4 + segW * (i + 0.5), 0.22, -hd - 4.2);
+      root.add(north);
+      const south = north.clone();
+      south.position.z = hd + 4.2;
+      root.add(south);
+      const west = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.5, segD), mat);
+      west.position.set(cx - hw - 4.2, 0.22, -hd - 4 + segD * (i + 0.5));
+      root.add(west);
+      const east = west.clone();
+      east.position.x = cx + hw + 4.2;
+      root.add(east);
+    }
+  }
+
+  if (base === 'neon') {
+    const glow = new THREE.MeshBasicMaterial({ color: P.accent });
+    const strip = (w: number, d: number, x: number, z: number): void => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, d), glow);
+      m.position.set(x, 0.055, z);
+      root.add(m);
+    };
+    strip(ROOM.w + 7, 0.55, cx, -hd - 2.6);
+    strip(ROOM.w + 7, 0.55, cx, hd + 2.6);
+    strip(0.55, ROOM.d + 7, cx - hw - 2.6, 0);
+    strip(0.55, ROOM.d + 7, cx + hw + 2.6, 0);
+    const pylonMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x111827 : 0x1f2937,
+      metalness: 0.7,
+      roughness: 0.35,
+    });
+    for (const [x, z] of [
+      [cx - hw - 2.6, -hd - 2.6],
+      [cx + hw + 2.6, -hd - 2.6],
+      [cx - hw - 2.6, hd + 2.6],
+      [cx + hw + 2.6, hd + 2.6],
+    ] as [number, number][]) {
+      const pylon = new THREE.Mesh(new THREE.BoxGeometry(3, 7, 3), pylonMat);
+      pylon.position.set(x, 3.5, z);
+      root.add(pylon);
+      const tip = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, 3.2), glow);
+      tip.position.set(x, 7.1, z);
+      root.add(tip);
+    }
+  }
+}
+
 function buildContent(isDark: boolean): void {
   if (!scene) return;
   initLiveScreens();
+  rebuildRoamTargets();
   registerCollisionGeometry();
   contentRoot = new THREE.Group();
+  const L = activeTheme().layout;
 
-  buildAmazonRainforest(contentRoot, isDark);
+  buildSurroundings(contentRoot, isDark);
   buildFloorAndWalls(contentRoot, isDark);
+  buildCampusBase(contentRoot, isDark);
   buildDesks(contentRoot, isDark);
   buildWhiteboard(contentRoot);
   buildServerRack(contentRoot, isDark, 17.6, -11.4, -Math.PI / 8);
@@ -5517,14 +5839,23 @@ function buildContent(isDark: boolean): void {
   buildCampusLandscaping(contentRoot, isDark);
   buildSportsWing(contentRoot, isDark);
   buildDistricts(contentRoot, isDark);
-  buildAttractions(contentRoot, isDark);
-  buildAnimalVillage(contentRoot, isDark);
+
+  const attractions = new THREE.Group();
+  attractions.position.set(L.attractions[0], 0, L.attractions[1]);
+  contentRoot.add(attractions);
+  buildAttractions(attractions, isDark);
+
+  const village = new THREE.Group();
+  village.position.set(L.village[0], 0, L.village[1]);
+  contentRoot.add(village);
+  buildAnimalVillage(village, isDark);
+
   buildStaff(contentRoot, isDark);
   buildAnimals(contentRoot);
   buildAnimalProps(contentRoot, isDark);
   buildVisitors(contentRoot, isDark);
   buildButterflies(contentRoot);
-  buildShuttle(contentRoot);
+  if (L.shuttle) buildShuttle(contentRoot);
   buildPendantLamps(contentRoot);
 
   createPottedPlant(contentRoot, -7, -13.2, isDark);
@@ -5556,18 +5887,23 @@ let dirLight: THREE.DirectionalLight | null = null;
 
 function applyLighting(isDark: boolean): void {
   if (!scene || !ambient || !dirLight) return;
+  const P = activeTheme();
   skyTexture?.dispose();
   skyTexture = createSkyTexture(isDark);
   scene.background = skyTexture;
   scene.environment = realisticAssets?.envMap ?? null;
-  scene.environmentIntensity = realisticAssets?.envMap ? (isDark ? 0.4 : 0.85) : 0;
-  // Humus haze: the tree wall fades into mist, which sells the remoteness.
-  scene.fog = new THREE.FogExp2(isDark ? 0x0b1d15 : 0x9dbfa8, isDark ? 0.0032 : 0.0016);
-  ambient.color.setHex(isDark ? 0x1e293b : 0xffffff);
-  ambient.intensity = isDark ? 2.0 : 2.5;
-  dirLight.color.setHex(isDark ? 0x93c5fd : 0xfffaed);
-  dirLight.intensity = isDark ? 2.4 : 2.9;
-  if (renderer) renderer.toneMappingExposure = isDark ? 1.18 : 1.05;
+  scene.environmentIntensity = realisticAssets?.envMap ? (isDark ? P.envNight : P.envDay) : 0;
+  // Atmosphere per theme: humus haze, cloud glow, neon smog, sea sparkle or
+  // none at all in open space.
+  const fog = isDark ? P.fogNight : P.fogDay;
+  scene.fog = fog ? new THREE.FogExp2(fog.color, fog.density) : null;
+  const amb = isDark ? P.ambientNight : P.ambientDay;
+  ambient.color.setHex(amb.color);
+  ambient.intensity = amb.intensity;
+  const dir = isDark ? P.dirNight : P.dirDay;
+  dirLight.color.setHex(dir.color);
+  dirLight.intensity = dir.intensity;
+  if (renderer) renderer.toneMappingExposure = isDark ? P.exposureNight : P.exposureDay;
 }
 
 async function startRealisticAssets(): Promise<void> {
@@ -5660,6 +5996,7 @@ export function initScene(): boolean {
 
     raycaster = new THREE.Raycaster();
 
+    initWorldTheme();
     applyLighting(isDark);
     buildContent(isDark);
     const env = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
@@ -5691,6 +6028,8 @@ export function initScene(): boolean {
         },
       };
       (window as unknown as Record<string, unknown>)['__hqPhysics'] = debug;
+      (window as unknown as Record<string, unknown>)['__hqScene'] = scene;
+      (window as unknown as Record<string, unknown>)['__hqCam'] = camera;
     }
     // Let the first frame and splash fade finish before pulling ~25 MB of art.
     window.setTimeout(() => {
@@ -5743,6 +6082,30 @@ export function rebuildForTheme(isDark: boolean): void {
   buildContent(isDark);
   camera.position.copy(pos);
   controls.target.copy(look);
+}
+
+/* ---------------------------------------------------------------- world theme */
+
+const WORLD_THEME_KEY = 'hq-wor…heme';
+
+/** Read the persisted world theme before the first build. */
+export function initWorldTheme(): void {
+  setActiveTheme(window.localStorage.getItem(WORLD_THEME_KEY));
+}
+
+export function getWorldThemeId(): WorldThemeId {
+  return activeTheme().id;
+}
+
+/**
+ * Switch the whole estate to another world. Data, collision and layout stay
+ * untouched; only how everything looks (and what surrounds it) changes.
+ */
+export function setWorldTheme(id: WorldThemeId): void {
+  if (activeTheme().id === id) return;
+  setActiveTheme(id);
+  window.localStorage.setItem(WORLD_THEME_KEY, id);
+  if (scene) rebuildForTheme(appState.officeDark);
 }
 
 export function setSceneActive(active: boolean): void {
@@ -6152,7 +6515,7 @@ function loop(): void {
   animateVisitors(dt, time);
   animateButterflies(time);
   animateShuttle(dt, time);
-  animateJungle(dt, time);
+  updateSurroundings(dt, time);
 
   serverLeds.forEach((led) => {
     led.mesh.visible = Math.sin(time * led.rate) > 0.3;
